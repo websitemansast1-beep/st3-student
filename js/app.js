@@ -1,6 +1,19 @@
 // ===== MFX Student App =====
 const API = 'https://web-production-dcdc4.up.railway.app/api';
 
+// Kill any Service Worker left registered from an old deploy. This app
+// isn't meant to run as an offline-first PWA, so a stray SW (from an
+// earlier experiment, or a browser that cached one) can silently keep
+// serving an old, broken copy of this very file to a phone even after a
+// fresh deploy and a manual cache-clear — Service Worker caches are not
+// touched by a normal "clear browsing data > cache" on some mobile
+// browsers. This runs on every page load and is a no-op once cleaned up.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    regs.forEach((r) => r.unregister());
+  }).catch(() => {});
+}
+
 function toast(msg) {
   let t = document.querySelector('.toast');
   if (t) t.remove();
@@ -61,11 +74,65 @@ async function withPageLoader(fn) {
   }
 }
 
-function getToken() { return localStorage.getItem('mfx_student_token'); }
-function setToken(t) { localStorage.setItem('mfx_student_token', t); }
-function getUser() { try { return JSON.parse(localStorage.getItem('mfx_student_user') || '{}'); } catch(e) { return {}; } }
-function logout() { localStorage.removeItem('mfx_student_token'); localStorage.removeItem('mfx_student_user'); location.href = 'login.html'; }
+function getToken() {
+  try {
+    return localStorage.getItem('mfx_student_token');
+  } catch (e) {
+    return null;
+  }
+}
 
+function setToken(t) {
+  try {
+    if (!t) return false;
+
+    localStorage.setItem('mfx_student_token', t);
+
+    const saved = localStorage.getItem('mfx_student_token');
+
+    return saved === t;
+  } catch (e) {
+    return false;
+  }
+}
+
+function getRefreshToken() {
+  try {
+    return localStorage.getItem('mfx_student_refresh_token');
+  } catch (e) {
+    return null;
+  }
+}
+
+function setRefreshToken(t) {
+  try {
+    if (!t) return false;
+    localStorage.setItem('mfx_student_refresh_token', t);
+    return localStorage.getItem('mfx_student_refresh_token') === t;
+  } catch (e) {
+    return false;
+  }
+}
+
+function getUser() {
+  try {
+    return JSON.parse(
+      localStorage.getItem('mfx_student_user') || '{}'
+    );
+  } catch (e) {
+    return {};
+  }
+}
+
+function logout() {
+  try {
+    localStorage.removeItem('mfx_student_token');
+    localStorage.removeItem('mfx_student_refresh_token');
+    localStorage.removeItem('mfx_student_user');
+  } catch (e) {}
+
+  location.replace('login.html');
+}
 // Reads the JWT's own expiry (exp claim) without a network call, so an
 // expired session is caught the instant the page loads instead of only
 // after some data request fails with 401.
@@ -73,32 +140,114 @@ function isTokenExpired(token) {
   try {
     const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
     if (!payload.exp) return false;
-    return Date.now() >= payload.exp * 1000;
+    // 5-minute grace window: this check runs against the DEVICE's own
+    // clock, and a phone with a slightly fast clock/timezone misconfig
+    // would otherwise see a perfectly valid, freshly-issued token as
+    // "already expired" the instant it lands on the next page — logging
+    // the student straight back out. A small buffer absorbs normal clock
+    // drift without meaningfully weakening the expiry check itself.
+    const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000;
+    return Date.now() >= (payload.exp * 1000 + CLOCK_SKEW_TOLERANCE_MS);
   } catch (e) {
     return true; // unreadable token = treat as expired
   }
 }
 
+// Silently exchanges the stored refresh token (30-day lifetime, issued at
+// login — see routes/auth.js POST /auth/refresh) for a brand-new access
+// token (15-minute lifetime). Returns true/false instead of throwing, so
+// every caller can just check the result and decide what to do next
+// (retry a request, or give up and log out). Concurrent callers share the
+// same in-flight request instead of firing a refresh each — this is what
+// keeps a page with several api() calls in flight from all racing to
+// refresh at once.
+let refreshInFlight = null;
+async function refreshAccessToken() {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return false;
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    try {
+      const res = await fetch(API + '/auth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken })
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (!data || !data.ok || !data.data || !data.data.accessToken) return false;
+      return setToken(data.data.accessToken);
+    } catch (e) {
+      return false;
+    }
+  })();
+
+  try {
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
+  }
+}
+
 async function api(path, opts = {}) {
   const url = API + path;
-  const headers = { 'Content-Type': 'application/json' };
-  const token = getToken();
-  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const doFetch = async () => {
+    const headers = { 'Content-Type': 'application/json' };
+    const token = getToken();
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    return fetch(url, { ...opts, headers: { ...headers, ...opts.headers } });
+  };
   try {
-    const res = await fetch(url, { ...opts, headers: { ...headers, ...opts.headers } });
-    if (res.status === 401) { logout(); return; }
+    let res = await doFetch();
+    // A 401 mid-session (the access token expired while the student was
+    // actively using the page, not just on page load) used to log the
+    // student out immediately. Now: try ONE silent refresh + retry first
+    // — only fall back to logout if the refresh itself fails, which
+    // means the refresh token is gone/expired too (30 days) and this is
+    // a real, unrecoverable session.
+    if (res.status === 401) {
+      const refreshed = await refreshAccessToken();
+      if (!refreshed) { logout(); return; }
+      res = await doFetch();
+      if (res.status === 401) { logout(); return; }
+    }
     return await res.json();
   } catch (e) { toast('❌ خطأ في الاتصال'); throw e; }
 }
 
-// Auth check
-function requireAuth() {
+// Auth check — this is what runs on every single page load, so it's the
+// spot that was logging students out for real: if the access token
+// LOOKS expired (its 15-minute exp claim has passed — completely normal
+// after watching one video or reading one lesson), the old code called
+// logout() immediately, even though a perfectly valid 30-day refresh
+// token was sitting right there unused. Now it tries one silent refresh
+// first and only sends the student back to login if that refresh itself
+// fails (refresh token missing/expired too — a real 30-day-old session).
+// Returns true if the student is authenticated (token was fine, or the
+// refresh succeeded) and false if they were redirected to login — so
+// callers can bail out of loading page data on false.
+async function requireAuth() {
   const onLoginPage = location.pathname.includes('login.html');
+
+  if (onLoginPage) return true;
+
   const token = getToken();
-  if (onLoginPage) return;
-  if (!token || isTokenExpired(token)) {
-    logout();
+
+  if (!token) {
+    location.replace('login.html');
+    return false;
   }
+
+  if (isTokenExpired(token)) {
+    const refreshed = await refreshAccessToken();
+    if (!refreshed) {
+      logout();
+      return false;
+    }
+  }
+
+  return true;
 }
 
 // Login
@@ -120,13 +269,38 @@ async function handleLogin(e) {
         body: JSON.stringify({ code, name, phone, guardianPhone })
       });
       if (data && data.token) {
-        setToken(data.token);
-        localStorage.setItem('mfx_student_user', JSON.stringify(data.user));
+        const saved = setToken(data.token);
+        if (data.refreshToken) setRefreshToken(data.refreshToken);
+
+        if (!saved) {
+          toast('❌ تعذر حفظ تسجيل الدخول على الجهاز');
+          if (form) {
+            form.querySelectorAll('input').forEach((i) => {
+              i.disabled = false;
+            });
+          }
+          return;
+        }
+
+        localStorage.setItem(
+          'mfx_student_user',
+          JSON.stringify(data.user || {})
+        );
+
         toast('✅ تم تسجيل الدخول');
-        location.href = 'index.html'; // single navigation — no repeated reloads
+
+        setTimeout(() => {
+          window.location.replace('index.html');
+        }, 300);
+
       } else {
         toast('❌ ' + ((data && data.error) || 'كود أو اسم غير صحيح'));
-        if (form) form.querySelectorAll('input').forEach((i) => i.disabled = false);
+
+        if (form) {
+          form.querySelectorAll('input').forEach((i) => {
+            i.disabled = false;
+          });
+        }
       }
     } catch (err) {
       if (form) form.querySelectorAll('input').forEach((i) => i.disabled = false);
@@ -245,15 +419,6 @@ function renderVocabList_(words) {
   `).join('');
 }
 
-// Found a real bug: the play button used to build its onclick as
-// `playVocabWord_(0, ${JSON.stringify(w.text)}, ...)` — JSON.stringify
-// always wraps a string in DOUBLE quotes, and that was sitting inside an
-// HTML onclick="..." attribute which is ALSO double-quoted. That breaks
-// the attribute for literally every word, not just ones with special
-// characters — the button never worked at all. Fixed by only ever
-// passing a plain integer index through the attribute and looking the
-// actual word up from currentCourseVocab (the real data), never
-// round-tripping arbitrary text through generated HTML/JS.
 function playVocabWord_(i) {
   const word = currentCourseVocab[i];
   if (!word) return;
@@ -356,13 +521,8 @@ async function loadCourseExams(courseId) {
 }
 
 // Exam
-// examState.attemptId / expiresAt come from the server (POST /attempts/start)
-// — the server's clock is the only source of truth for when time is up.
-// examState.answers is mirrored into localStorage on every change so a
-// refresh (or the browser dying) never loses an answer that hasn't made it
-// to the server yet.
 let examState = { examId: null, attemptId: null, questions: [], current: 0, answers: {}, expiresAt: null };
-let dirtyAnswerKeys = new Set(); // which question IDs changed since the last autosave
+let dirtyAnswerKeys = new Set();
 
 function answersStorageKey_() { return 'mfx_exam_answers_' + examState.attemptId; }
 function saveAnswersLocally_() {
@@ -386,11 +546,6 @@ async function loadExam() {
   examState.examId = id;
   setExamLoading_(true, 'جاري تحميل الامتحان...');
   try {
-    // ONE request: /attempts/start returns the attempt AND the exam's
-    // metadata + questions together (previously this was two separate
-    // requests — start, then a second GET /exams/:id). Idempotent and
-    // deduped server-side, so a double-tap or a page reload never creates
-    // a second attempt.
     const startRes = await api('/attempts/start', { method: 'POST', body: JSON.stringify({ examId: id }) });
     if (!startRes || !startRes.ok) {
       const container = document.getElementById('questions-container');
@@ -404,9 +559,6 @@ async function loadExam() {
     const data = attempt.exam ? { ...attempt.exam, questions: attempt.questions } : {};
     examState.questions = data.questions || [];
 
-    // Resume any answers already saved on the server for this attempt,
-    // then let localStorage fill in anything saved locally that a slow
-    // network hadn't autosaved yet (local always wins — it's newer).
     const serverAnswers = safeParseAnswers_(attempt.answers);
     const localAnswers = loadAnswersLocally_();
     examState.answers = { ...serverAnswers, ...localAnswers };
@@ -457,19 +609,6 @@ function renderExam() {
   `).join('');
   updateProg();
 
-  // Answer clicks are handled by ONE delegated listener instead of an
-  // inline onclick per option. Found during a review: the old inline
-  // onclick embedded the option's raw TEXT straight into the HTML
-  // attribute (`onclick="pickOpt('id', ${JSON.stringify(opt)})"`) — if an
-  // option ever contained a double-quote character (e.g. an English
-  // question quoting a phrase, or a possessive like "student's"), the
-  // browser's HTML parser would read that quote as the END of the
-  // onclick attribute and silently truncate/break the handler. That
-  // option would then just... not respond to clicks. Delegation reads
-  // the option's value from examState.questions (the actual data),
-  // never from re-parsed HTML/JS-in-an-attribute, so no amount of
-  // punctuation in the question text can break it. Attached once, on
-  // the container that's never itself replaced (only its children are).
   if (!container.dataset.delegated) {
     container.dataset.delegated = '1';
     container.addEventListener('click', (e) => {
@@ -491,12 +630,6 @@ function renderExam() {
   }
 }
 
-// Listening questions play one of two ways:
-//  - ttsText: the browser's own AI voice reads it aloud (Web Speech API) —
-//    no audio file, no upload, no hosting, works the instant it's typed.
-//  - audioUrl: the older file-upload path, kept for exams already using it.
-// Nothing plays automatically and nothing is fetched until the student
-// actually presses play — this never blocks or slows down opening the exam.
 function renderListeningPlayer_(q) {
   if (q.ttsText) {
     const rate = parseFloat(q.ttsRate) || 1;
@@ -553,15 +686,9 @@ function renderQuestionInput(q) {
   if (q.type === 'fillblank') {
     return `<input type="text" class="inp" value="${escapeAttr_(current || '')}" oninput="setTextAnswer('${q.id}', this.value)" placeholder="اكتب إجابتك">`;
   }
-  // essay
   return `<textarea class="inp" rows="4" oninput="setTextAnswer('${q.id}', this.value)" placeholder="اكتب إجابتك">${escapeHtml(current || '')}</textarea>`;
 }
 
-// Selecting an option updates just that question's option list in place
-// (not the whole exam) — this is what stops a <audio> listening player
-// from being torn down and restarted every time an answer is picked, and
-// avoids re-rendering all N questions for a single click. The click
-// itself is handled by the delegated listener set up once in renderExam().
 function updateAnswer_(qId, value) {
   examState.answers[qId] = value;
   dirtyAnswerKeys.add(qId);
@@ -596,9 +723,6 @@ function renderQNav() {
   nav.innerHTML = examState.questions.map((q, i) => {
     const answered = isAnswered_(examState.answers[q.id]);
     const isCurrent = i === examState.current;
-    // Clear at a glance: filled = answered, outlined = still empty,
-    // glowing ring = the one you're on right now — so a student can jump
-    // straight to what's left instead of paging through everything again.
     let cls = 'q-nav-pill';
     if (isCurrent) cls += ' current';
     if (answered) cls += ' answered';
@@ -617,8 +741,6 @@ function renderQNav() {
 }
 
 function goQ(n) {
-  // Stop any TTS still speaking the previous question — otherwise it
-  // keeps talking over the next question the student's now looking at.
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   examState.current = n;
   document.querySelectorAll('.q-card').forEach((c, i) => c.style.display = i === n ? 'block' : 'none');
@@ -634,20 +756,14 @@ function updateProg() {
   const txt = document.getElementById('progress-text');
   if (fill) fill.style.width = total ? (ans / total * 100) + '%' : '0%';
   if (txt) txt.textContent = ans + ' / ' + total;
-  renderQNav(); // keep the navigator's answered/unanswered pills in sync
+  renderQNav();
 }
 
 // ===== Autosave =====
-// Batches every answer changed since the last save into ONE request,
-// on a fixed interval — never one request per click. Skips the request
-// entirely if nothing changed since the last tick.
 let autosaveInt;
 function startAutosaveLoop() {
   clearInterval(autosaveInt);
   autosaveInt = setInterval(runAutosave, 10000);
-  // Defensive: remove before re-adding, so if this is ever called more
-  // than once in one page life (it isn't today, but nothing enforces
-  // that), the browser doesn't end up firing autosave twice on unload.
   window.removeEventListener('beforeunload', runAutosave);
   window.addEventListener('beforeunload', runAutosave);
 }
@@ -666,18 +782,12 @@ async function runAutosave() {
     });
     if (status) status.textContent = (res && res.ok) ? '✓ تم الحفظ' : '';
   } catch (e) {
-    // Failed silently — the keys are still in examState/localStorage,
-    // so re-add them to be retried on the next tick instead of losing them.
     keysToSave.forEach((k) => dirtyAnswerKeys.add(k));
     if (status) status.textContent = '';
   }
 }
 
 // ===== Server-anchored countdown =====
-// The countdown always recomputes from examState.expiresAt (a server
-// timestamp), never from a locally-ticked "minutes left" counter — so a
-// slow tab, a laptop sleeping, or clock drift can't desync the timer from
-// what the server will actually enforce.
 let timerInt;
 function startTimer() {
   clearInterval(timerInt);
@@ -688,9 +798,6 @@ function startTimer() {
     const s = (sec % 60).toString().padStart(2, '0');
     if (el) {
       el.textContent = m + ':' + s;
-      // Clear visual urgency in the last minute — color alone (not a
-      // popup, not a sound) so it doesn't interrupt whatever the student
-      // is doing, but it's impossible to miss.
       el.classList.toggle('timer-low', sec <= 60 && sec > 0);
     }
     if (sec <= 0) { clearInterval(timerInt); confirmSubmit(); }
@@ -701,7 +808,9 @@ function startTimer() {
 
 function submitExam() {
   const total = examState.questions.length;
-  const ans = Object.keys(examState.answers).length;
+  const ans = examState.questions.filter((q) =>
+    isAnswered_(examState.answers[q.id])
+  ).length;
   const modal = document.getElementById('submit-modal');
   const msg = document.getElementById('modal-msg');
   if (modal) modal.style.display = 'flex';
@@ -710,11 +819,6 @@ function submitExam() {
 
 function closeModal() { document.getElementById('submit-modal').style.display = 'none'; }
 
-// Submit now returns immediately (202 PROCESSING) — the actual Sheets
-// write happens in a batch on the server. We show the "received" state
-// right away, then poll /:id/status with growing intervals (2s, 4s, 8s,
-// then staying at 8s) until it settles, instead of holding one long HTTP
-// connection open or hammering the server every second.
 async function confirmSubmit() {
   closeModal();
   clearInterval(timerInt);
@@ -736,8 +840,6 @@ async function confirmSubmit() {
       showSubmissionReceived_();
 
       if (data.data && data.data.status === 'COMPLETED') {
-        // Already flushed (e.g. queue was empty and flushed instantly) —
-        // no need to poll at all.
         showResult(data.data);
         return;
       }
@@ -746,9 +848,6 @@ async function confirmSubmit() {
   });
 }
 
-// Step 1 of the two-step message from the spec: confirm receipt instantly,
-// independently of whether Sheets has actually been written to yet. Shows
-// a real animated spinner (not emoji) while the queue processes this.
 function showSubmissionReceived_() {
   const modal = document.getElementById('result-modal');
   if (!modal) return;
@@ -776,24 +875,24 @@ function setResultModalState_({ icon, title, score, rank, time, showRetry }) {
   if (retryBtn) retryBtn.style.display = showRetry ? 'block' : 'none';
 }
 
-// Manual retry after a terminal FAILED status — the queue already retried
-// automatically server-side (see submissionQueue.js) before giving up, so
-// polling further wouldn't help; re-submitting starts a fresh attempt at
-// queueing (still idempotent — the attempt id is unchanged).
 async function retrySubmit_() {
   showSubmissionReceived_();
-  pollSubmissionStatus_(examState.attemptId);
+
   try {
     await api('/attempts/' + examState.attemptId + '/submit', {
       method: 'POST',
-      body: JSON.stringify({ answers: examState.answers })
+      body: JSON.stringify({
+        answers: examState.answers
+      })
     });
-  } catch (e) {}
+
+    pollSubmissionStatus_(examState.attemptId);
+
+  } catch (e) {
+    toast('❌ فشل إعادة إرسال الامتحان');
+  }
 }
 
-// Graduated polling: 2s, 4s, 8s, then holds at 8s. Stops immediately on
-// COMPLETED or FAILED — never polls once a second, never polls forever,
-// and never keeps polling once there's nothing left to wait for.
 function pollSubmissionStatus_(attemptId) {
   const delays = [2000, 4000, 8000];
   let step = 0;
@@ -804,9 +903,7 @@ function pollSubmissionStatus_(attemptId) {
     let data;
     try {
       data = await api('/attempts/' + attemptId + '/status');
-    } catch (e) {
-      // Connection hiccup — just try again on the same backoff schedule.
-    }
+    } catch (e) {}
     const status = data && data.ok && data.data && data.data.status;
 
     if (status === 'COMPLETED') {
@@ -839,8 +936,6 @@ function showResult(attempt) {
   modal.style.display = 'flex';
 
   if (!attempt || attempt.resultsPublished === false) {
-    // Results not published yet — never show a score/rank the student
-    // wasn't meant to see, even transiently.
     setResultModalState_({
       icon: '✅', title: 'تم تسليم الامتحان!',
       score: '', rank: 'تم تسليم الامتحان بنجاح.', time: 'سيتم إعلان النتيجة بعد اعتماد المعلم.',
@@ -873,7 +968,6 @@ async function loadDashboard() {
     if (data.avgScore != null) document.getElementById('dash-score').textContent = data.avgScore + '%';
     if (data.rank != null) document.getElementById('dash-rank').textContent = '#' + data.rank;
 
-    // Progress
     const prog = document.getElementById('my-progress');
     const progEmpty = document.getElementById('progress-empty');
     if (prog) {
@@ -905,7 +999,6 @@ async function loadDashboard() {
       }
     }
 
-    // Recent exams
     const recent = document.getElementById('recent-exams');
     const recentEmpty = document.getElementById('exams-empty');
     if (recent) {
@@ -928,7 +1021,6 @@ async function loadDashboard() {
       }
     }
 
-    // Leaderboard
     const lb = document.getElementById('leaderboard-list');
     const lbEmpty = document.getElementById('leaderboard-empty');
     if (lb) {
@@ -993,7 +1085,7 @@ async function sendVideoProgress() {
   const watchSeconds = Math.round((Date.now() - videoWatchState.startedAt) / 1000);
   const watchPercentage = videoWatchState.durationSeconds > 0
     ? Math.min(100, Math.round((watchSeconds / videoWatchState.durationSeconds) * 100))
-    : Math.min(95, Math.round(watchSeconds / 3)); // rough fallback if no duration is set
+    : Math.min(95, Math.round(watchSeconds / 3));
   if (watchPercentage <= videoWatchState.sentPercentage) return;
   videoWatchState.sentPercentage = watchPercentage;
   try {
@@ -1073,10 +1165,6 @@ async function loadPresentationPage() {
   } catch (e) { toast('❌ فشل تحميل العرض التقديمي'); }
 }
 
-// Tiles the student's name + code across the presentation area so any
-// screenshot or photo of the screen is traceable back to them. This is a
-// deterrent, not a real block — nothing on the web can stop someone from
-// literally photographing their own screen.
 function renderPresentationWatermark() {
   const layer = document.getElementById('presentation-watermark');
   if (!layer) return;
@@ -1091,10 +1179,6 @@ function renderPresentationWatermark() {
   layer.innerHTML = html;
 }
 
-// A handful of low-friction deterrents against the *casual* "right click,
-// save" or "select all, copy" path. None of this stops a determined
-// person with a phone camera or a screen recorder — that's simply not
-// something any website can prevent.
 function setupPresentationDeterrents() {
   const viewer = document.getElementById('presentation-viewer');
   if (!viewer) return;
@@ -1107,19 +1191,12 @@ function setupPresentationDeterrents() {
   const blurNow = () => { if (cover) cover.style.display = 'flex'; };
   const unblurNow = () => { if (cover) cover.style.display = 'none'; };
 
-  // Hide the content the moment the tab loses focus or is backgrounded —
-  // makes casual screen-recording apps (which usually need the tab
-  // visible/focused) capture a blurred cover instead of the real slides.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) blurNow(); else unblurNow();
   });
   window.addEventListener('blur', blurNow);
   window.addEventListener('focus', unblurNow);
 
-  // Block the most common keyboard shortcuts someone would reach for
-  // first (Print, Save, DevTools). Anyone who actually knows what
-  // they're doing can still get around this — it just raises the floor
-  // above "accidentally easy".
   document.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();
     const blocked =
@@ -1220,17 +1297,25 @@ function toggleAcc(header) {
 }
 
 // Init
-document.addEventListener('DOMContentLoaded', () => {
-  requireAuth();
+document.addEventListener('DOMContentLoaded', async () => {
   const path = location.pathname;
   if (path.includes('login.html')) {
-    // Pre-fill the code when a student arrives via a QR-code deep link
-    // (login.html?code=XXXX) instead of typing it in by hand.
+    // Login page never has a token to check, so nothing to await here.
+    requireAuth();
     const qrCode = new URLSearchParams(location.search).get('code');
     const codeInput = document.getElementById('login-code');
     if (qrCode && codeInput) codeInput.value = qrCode;
     return;
   }
+
+  // Every other page: wait for requireAuth() to finish (including its
+  // silent refresh attempt, if one was needed) before deciding whether to
+  // load page data. Firing loadMyCourses()/etc. in parallel with an
+  // in-flight refresh used to mean the FIRST api() call after landing on
+  // a page could race the refresh and 401 before the new token was saved.
+  const authed = await requireAuth();
+  if (!authed) return; // already redirected to login.html
+
   if (path.includes('index.html')) withPageLoader(loadMyCourses);
   if (path.includes('course.html')) withPageLoader(loadCourse);
   if (path.includes('exam.html')) withPageLoader(loadExam);
