@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>الكورس | MFX Student</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="navbar-inner">
+      <a href="index.html" class="logo">
+        <div class="logo-mark">🎓</div>
+        <span class="text-gradient">MFX Student</span>
+      </a>
+      <div class="nav-actions">
+        <a href="index.html" class="btn btn-ghost">← كورساتي</a>
+      </div>
+    </div>
+  </nav>
+
+  <section style="padding: 140px 0 40px;">
+    <div class="container">
+      <div style="display:flex; gap:10px; margin-bottom:16px;" id="course-badges">
+        <span class="badge badge-info">جاري التحميل...</span>
+      </div>
+      <h1 style="font-size:clamp(1.8rem, 4vw, 3rem); margin-bottom:16px;" id="course-title">جاري التحميل...</h1>
+      <p style="color:var(--text-secondary); font-size:1.1rem; max-width:700px; margin-bottom:24px;" id="course-desc">...</p>
+      <div style="display:flex; gap:24px; flex-wrap:wrap; color:var(--text-secondary); font-size:0.9rem;" id="course-meta">
+        <span>⏳ جاري التحميل</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:0;">
+    <div class="container">
+      <div class="tabs">
+        <button class="tab active" onclick="switchTab(this,'units')">📚 الوحدات</button>
+        <button class="tab" onclick="switchTab(this,'exams')">📝 الامتحانات</button>
+        <button class="tab" onclick="switchTab(this,'vocab')">🔊 القاموس</button>
+      </div>
+
+      <div id="tab-units">
+        <div id="units-list">
+          <div class="skel" style="height:60px; margin-bottom:8px;"></div>
+          <div class="skel" style="height:60px; margin-bottom:8px;"></div>
+        </div>
+        <div class="empty" id="units-empty" style="display:none;">
+          <div class="empty-icon">📁</div>
+          <h3>لا توجد وحدات متاحة</h3>
+        </div>
+      </div>
+
+      <div id="tab-vocab" style="display:none;">
+        <p style="color:var(--text-secondary); margin-bottom:16px;">دوس تشغيل تسمع نطق الكلمة، وتقدر تغيّر السرعة قبل ما تسمع.</p>
+        <div id="vocab-list" style="display:flex; flex-direction:column; gap:8px;"></div>
+        <div class="empty" id="vocab-empty" style="display:none;">
+          <div class="empty-icon">🔊</div>
+          <h3>مفيش كلمات في القاموس لسه</h3>
+        </div>
+      </div>
+
+
+      <div id="tab-exams" style="display:none;">
+        <div id="exams-list">
+          <div class="skel" style="height:120px; margin-bottom:16px;"></div>
+        </div>
+        <div class="empty" id="exams-empty" style="display:none;">
+          <div class="empty-icon">📝</div>
+          <h3>لا توجد امتحانات متاحة</h3>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container"><p>© 2026 منصة ممدوح فخري التعليمية</p></div>
+  </footer>
+  <script src="js/app.js"></script>
+</body>
+</html>

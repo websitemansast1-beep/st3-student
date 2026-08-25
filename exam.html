@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>امتحان | MFX Student</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="navbar-inner">
+      <a href="index.html" class="logo">
+        <div class="logo-mark">🎓</div>
+        <span class="text-gradient">MFX Student</span>
+      </a>
+      <div class="nav-actions">
+        <div class="timer"><span>⏱️</span><span id="timer">--:--</span></div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="exam-wrap">
+    <div class="exam-header">
+      <span class="badge badge-info" id="exam-badge">جاري التحميل...</span>
+      <h1 style="margin-top:16px; font-size:1.7rem;" id="exam-title">جاري تحميل الامتحان...</h1>
+      <p style="color:var(--text-secondary); margin-top:8px;" id="exam-meta">⏳ جاري التحميل</p>
+    </div>
+
+    <div style="margin-bottom:32px;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:0.85rem; color:var(--text-secondary);">
+        <span>التقدم</span>
+        <span id="progress-text">0 / 0</span>
+      </div>
+      <div class="prog"><div class="prog-fill" id="progress-fill" style="width:0%;"></div></div>
+      <div class="autosave-status" id="autosave-status"></div>
+    </div>
+
+    <div id="questions-container">
+      <div class="skel" style="height:300px; margin-bottom:20px;"></div>
+    </div>
+
+    <div class="empty" id="exam-empty" style="display:none;">
+      <div class="empty-icon">📝</div>
+      <h3>لا توجد أسئلة</h3>
+    </div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:32px;" id="exam-nav">
+      <button class="btn btn-secondary" id="prev-btn" onclick="prevQ()" disabled>← السابق</button>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; justify-content:center;" id="q-nav"></div>
+      <button class="btn btn-primary" id="next-btn" onclick="nextQ()" disabled>التالي →</button>
+    </div>
+
+    <div style="text-align:center; margin-top:48px;">
+      <button class="btn btn-danger" id="submit-btn" onclick="submitExam()" disabled>🏁 تسليم الامتحان</button>
+    </div>
+  </div>
+
+  <!-- Submit Modal -->
+  <div id="submit-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:9999; align-items:center; justify-content:center;">
+    <div class="glass" style="border-radius:var(--radius-xl); padding:40px; max-width:420px; text-align:center; width:90%;">
+      <div style="font-size:3rem; margin-bottom:16px;">⚠️</div>
+      <h3 style="margin-bottom:12px;">هل أنت متأكد من التسليم؟</h3>
+      <p style="color:var(--text-secondary); margin-bottom:24px;" id="modal-msg">...</p>
+      <div style="display:flex; gap:12px; justify-content:center;">
+        <button class="btn btn-secondary" onclick="closeModal()">العودة</button>
+        <button class="btn btn-primary" onclick="confirmSubmit()">تأكيد التسليم</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Result Modal -->
+  <div id="result-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:9999; align-items:center; justify-content:center;">
+    <div class="glass" style="border-radius:var(--radius-xl); padding:48px; max-width:480px; text-align:center; width:90%;">
+      <div style="font-size:4rem; margin-bottom:16px;" id="result-icon">🎉</div>
+      <h2 style="margin-bottom:8px;" id="result-title">تم تسليم الامتحان!</h2>
+      <div style="font-size:3rem; font-weight:800; margin:20px 0;" class="text-gradient" id="result-score">0%</div>
+      <p style="color:var(--text-secondary); margin-bottom:8px;" id="result-rank">ترتيبك: —</p>
+      <p style="color:var(--text-secondary); margin-bottom:24px;" id="result-time">الوقت: —</p>
+      <button type="button" class="btn btn-secondary" id="result-retry-btn" style="width:100%; margin-bottom:8px; display:none;" onclick="retrySubmit_()">إعادة المحاولة</button>
+      <a href="dashboard.html" class="btn btn-primary" style="width:100%;" id="result-dashboard-link">الذهاب للوحة التحكم</a>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

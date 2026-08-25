@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>المحادثة مع المعلم | MFX Student</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="navbar-inner">
+      <a href="index.html" class="logo">
+        <div class="logo-mark">🎓</div>
+        <span class="text-gradient">MFX Student</span>
+      </a>
+      <ul class="nav-links">
+        <li><a href="index.html">كورساتي</a></li>
+        <li><a href="dashboard.html">لوحتي</a></li>
+        <li><a href="chat.html">💬 المعلم</a></li>
+      </ul>
+      <div class="nav-actions">
+        <span style="color:var(--text-secondary); font-size:0.9rem;">مرحباً، <span id="nav-name">—</span></span>
+        <button class="btn btn-ghost" onclick="logout()">🚪 خروج</button>
+      </div>
+    </div>
+  </nav>
+
+  <section style="padding: 110px 0 40px;">
+    <div class="container" style="max-width:700px;">
+      <h1 style="font-size:1.6rem; margin-bottom:4px;">💬 المحادثة مع المعلم</h1>
+      <p style="color:var(--text-secondary); margin-bottom:24px;">اسأل معلمك عن أي حاجة محتاج توضيح فيها</p>
+
+      <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-lg); display:flex; flex-direction:column; height:60vh;">
+        <div id="chat-messages" style="flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:12px;">
+          <div class="skel" style="height:40px;"></div>
+        </div>
+        <div class="empty" id="chat-empty" style="display:none; padding:24px;">
+          <div class="empty-icon" style="font-size:2.5rem;">💬</div>
+          <h3>ابدأ المحادثة</h3>
+          <p>اكتب أول رسالة لمعلمك</p>
+        </div>
+        <div style="display:flex; gap:10px; padding:16px; border-top:1px solid var(--border);">
+          <input type="text" id="chat-input" class="inp" placeholder="اكتب رسالتك..." maxlength="4000" onkeydown="if(event.key==='Enter') sendChatMessage()">
+          <button class="btn btn-primary" onclick="sendChatMessage()">إرسال</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>كورساتي | MFX Student</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="navbar-inner">
+      <a href="index.html" class="logo">
+        <div class="logo-mark">🎓</div>
+        <span class="text-gradient">MFX Student</span>
+      </a>
+      <ul class="nav-links">
+        <li><a href="index.html">كورساتي</a></li>
+        <li><a href="dashboard.html">لوحتي</a></li>
+        <li><a href="dashboard.html#leaderboard">المتصدرين</a></li>
+        <li><a href="chat.html">💬 المعلم</a></li>
+      </ul>
+      <div class="nav-actions">
+        <span style="color:var(--text-secondary); font-size:0.9rem;">مرحباً، <span id="nav-name">—</span></span>
+        <button class="btn btn-ghost" onclick="logout()">🚪 خروج</button>
+      </div>
+    </div>
+  </nav>
+
+  <section class="hero" style="padding: 140px 0 60px;">
+    <div class="container">
+      <h1 class="anim">كورساتي <span class="text-gradient">المتاحة</span></h1>
+      <p class="anim d1" style="color:var(--text-secondary); margin-top:12px;">اختر الكورس اللي عايز تذاكره النهاردة</p>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:0;">
+    <div class="container">
+      <div class="grid-3" id="my-courses">
+        <div class="card skel" style="height:320px;"></div>
+        <div class="card skel" style="height:320px;"></div>
+      </div>
+      <div class="empty" id="courses-empty" style="display:none;">
+        <div class="empty-icon">📚</div>
+        <h3>لا توجد كورسات مسجلة لك</h3>
+        <p>تواصل مع المعلم للحصول على كود وصول</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container"><p>© 2026 منصة ممدوح فخري التعليمية</p></div>
+  </footer>
+  <script src="js/app.js"></script>
+</body>
+</html>
