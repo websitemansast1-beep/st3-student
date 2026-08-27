@@ -1,5 +1,8 @@
 // ===== MFX Student App =====
-const API = 'https://mrmomd-production.up.railway.app/api';
+// ===== MFX Admin App =====
+const API = 'https://web-production-dcdc4.up.railway.app/api';
+
+
 
 function toast(msg) {
   let t = document.querySelector('.toast');
