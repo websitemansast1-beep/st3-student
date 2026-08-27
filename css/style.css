@@ -1,4 +1,3 @@
-
 @import url('https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap');
 
 /* ============================================================
@@ -13,23 +12,29 @@
    body text and UI, where clarity matters more than character.
    ============================================================ */
 :root {
-  --bg: #16130f;
-  --bg-elevated: #1e1a14;
-  --bg-card: #221d16;
-  --bg-glass: rgba(34, 29, 22, 0.72);
-  --border: rgba(244, 228, 193, 0.08);
-  --border-hover: rgba(244, 228, 193, 0.18);
-  --text: #f3ead9;
-  --text-secondary: #b6a98e;
-  --text-muted: #6e6350;
-  --accent: #e0982f;
-  --accent-light: #f0b45c;
-  --accent-glow: rgba(224, 152, 47, 0.25);
-  --accent-2: #4f9d8f;
-  --accent-2-glow: rgba(79, 157, 143, 0.2);
-  --success: #6fae4e;
-  --warning: #e0982f;
-  --danger: #cf5d4c;
+  /* "أزرق ليلي ونحاسي" (Midnight & Copper) — chosen design direction:
+     a cool midnight-blue base instead of the old warm charcoal-brown,
+     with a warm copper primary accent and a muted midnight-blue second
+     accent for contrast. Deliberately away from the purple/cyan
+     "generic AI" gradient look. Same tokens as the admin site, kept in
+     sync deliberately. */
+  --bg: #0d1420;
+  --bg-elevated: #111c2e;
+  --bg-card: #142234;
+  --bg-glass: rgba(20, 34, 52, 0.72);
+  --border: rgba(238, 241, 247, 0.08);
+  --border-hover: rgba(238, 241, 247, 0.18);
+  --text: #eef1f7;
+  --text-secondary: #8e9bb3;
+  --text-muted: #5c6579;
+  --accent: #c77c4a;
+  --accent-light: #d99a6e;
+  --accent-glow: rgba(199, 124, 74, 0.3);
+  --accent-2: #2e5fa3;
+  --accent-2-glow: rgba(46, 95, 163, 0.28);
+  --success: #4caf7d;
+  --warning: #d6a24a;
+  --danger: #d1594f;
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
@@ -47,7 +52,7 @@ html { scroll-behavior:smooth; }
 body {
   font-family: 'IBM Plex Sans Arabic', sans-serif;
   background:
-    radial-gradient(circle at 1.5px 1.5px, rgba(244,228,193,0.05) 1px, transparent 0) 0 0/22px 22px,
+    radial-gradient(circle at 1.5px 1.5px, rgba(238,241,247,0.05) 1px, transparent 0) 0 0/22px 22px,
     var(--bg);
   color: var(--text);
   line-height: 1.7;
@@ -100,7 +105,7 @@ select:focus-visible, .btn:focus-visible, .opt:focus-within {
   height: 72px;
   display: flex;
   align-items: center;
-  background: rgba(22,19,15,0.82);
+  background: rgba(13,20,32,0.82);
   backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--border);
 }
@@ -159,6 +164,21 @@ select:focus-visible, .btn:focus-visible, .opt:focus-within {
 .nav-links a:hover::after { width: 100%; }
 .nav-actions { display: flex; gap: 12px; align-items: center; }
 
+/* Hamburger button for the nav-links dropdown above — hidden on desktop
+   (where nav-links is already always visible), shown only ≤768px via
+   the media query below. */
+.mfx-nav-toggle {
+  display: none;
+  align-items: center; justify-content: center;
+  width: 40px; height: 40px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
 /* Buttons */
 .btn {
   display: inline-flex;
@@ -183,7 +203,7 @@ select:focus-visible, .btn:focus-visible, .opt:focus-within {
 }
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 30px var(--accent-glow), 0 0 0 1px rgba(244,228,193,0.12) inset;
+  box-shadow: 0 8px 30px var(--accent-glow), 0 0 0 1px rgba(238,241,247,0.12) inset;
 }
 .btn-secondary {
   background: var(--bg-elevated);
@@ -192,7 +212,7 @@ select:focus-visible, .btn:focus-visible, .opt:focus-within {
 }
 .btn-secondary:hover {
   border-color: var(--border-hover);
-  background: rgba(244,228,193,0.04);
+  background: rgba(238,241,247,0.04);
   transform: translateY(-1px);
 }
 .btn-ghost {
@@ -223,10 +243,30 @@ select:focus-visible, .btn:focus-visible, .opt:focus-within {
   content: '';
   position: absolute;
   top: -50%; left: 50%;
-  transform: translateX(-50%);
   width: 800px; height: 800px;
   background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
   pointer-events: none;
+  animation: mfx-hero-drift 9s ease-in-out infinite;
+}
+/* Second, smaller glow in the second accent color — was missing before,
+   so the hero only ever breathed in one color. Drifts opposite the
+   first for a subtle parallax feel instead of both moving in sync. */
+.hero::after {
+  content: '';
+  position: absolute;
+  bottom: -30%; right: 8%;
+  width: 420px; height: 420px;
+  background: radial-gradient(circle, var(--accent-2-glow) 0%, transparent 70%);
+  pointer-events: none;
+  animation: mfx-hero-drift-2 7s ease-in-out infinite;
+}
+@keyframes mfx-hero-drift {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(24px); }
+}
+@keyframes mfx-hero-drift-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-18px, -14px) scale(1.08); }
 }
 .hero h1 {
   font-size: clamp(2.5rem, 6vw, 4.5rem);
@@ -268,7 +308,7 @@ select:focus-visible, .btn:focus-visible, .opt:focus-within {
   position: absolute;
   top: 0; left: 0; right: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(244,228,193,0.1), transparent);
+  background: linear-gradient(90deg, transparent, rgba(238,241,247,0.1), transparent);
 }
 .card:hover {
   border-color: var(--border-hover);
@@ -394,7 +434,7 @@ select:focus-visible, .btn:focus-visible, .opt:focus-within {
   transition: var(--transition);
   user-select: none;
 }
-.accordion-header:hover { background: rgba(244,228,193,0.03); }
+.accordion-header:hover { background: rgba(238,241,247,0.03); }
 .accordion-header h4 { font-size: 0.95rem; font-weight: 600; }
 .accordion-header .meta {
   display: flex;
@@ -517,8 +557,36 @@ select:focus-visible, .btn:focus-visible, .opt:focus-within {
   border-radius: var(--radius-xl);
   padding: 48px 36px;
   position: relative;
+  overflow: hidden;
   z-index: 1;
 }
+/* Same drifting-blob motif as the hero, scaled down for a card — gives
+   the login screen a bit of life instead of sitting completely static. */
+.auth-card::before {
+  content: '';
+  position: absolute;
+  top: -70px; right: -50px;
+  width: 200px; height: 200px;
+  border-radius: 50%;
+  background: var(--accent-2-glow);
+  filter: blur(6px);
+  pointer-events: none;
+  z-index: 0;
+  animation: mfx-drift-1 8s ease-in-out infinite;
+}
+.auth-card::after {
+  content: '';
+  position: absolute;
+  bottom: -60px; left: -40px;
+  width: 140px; height: 140px;
+  border-radius: 50%;
+  background: var(--accent-glow);
+  filter: blur(6px);
+  pointer-events: none;
+  z-index: 0;
+  animation: mfx-drift-2 6s ease-in-out infinite;
+}
+.auth-card > * { position: relative; z-index: 1; }
 .auth-card .logo { justify-content: center; margin-bottom: 36px; }
 .auth-card h2 {
   text-align: center; margin-bottom: 20px; font-size: 1.6rem;
@@ -716,7 +784,7 @@ th {
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
-tr:hover td { background: rgba(244,228,193,0.03); }
+tr:hover td { background: rgba(238,241,247,0.03); }
 
 /* Leaderboard */
 .leaderboard-item {
@@ -748,7 +816,25 @@ tr:hover td { background: rgba(244,228,193,0.03); }
 
 /* Responsive */
 @media (max-width: 768px) {
-  .nav-links { display: none; }
+  /* FIX: this used to just hide the nav links (كورساتي / لوحتي /
+     المتصدرين / المعلم) with no way back to them — that's what made
+     those pages unreachable from a phone. Now the hamburger button
+     (added next to the logo) toggles them open as a dropdown instead. */
+  .nav-links {
+    display: none;
+    position: absolute;
+    top: 72px; right: 0; left: 0;
+    flex-direction: column;
+    gap: 4px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px 16px;
+    z-index: 999;
+  }
+  .nav-links.mfx-open { display: flex; }
+  .nav-links a { display: block; padding: 10px 4px; }
+  .nav-links a::after { display: none; }
+  .mfx-nav-toggle { display: flex; }
   .hero { padding: 130px 0 60px; }
   .hero h1 { font-size: 2rem; }
   .section { padding: 60px 0; }
@@ -775,19 +861,50 @@ tr:hover td { background: rgba(244,228,193,0.03); }
   .viewer-frame-wrap { border-radius: 6px !important; }
 }
 
-/* ===== Global loading spinner (lightweight, no heavy animation) ===== */
+/* ===== Global loading spinner — two-tone (accent + accent-2), so even
+   the small inline version carries the midnight/copper identity instead
+   of a flat single-color ring. ===== */
 .mfx-spinner {
   display: inline-block;
   width: 18px;
   height: 18px;
-  border: 2px solid rgba(255,255,255,0.25);
-  border-top-color: currentColor;
+  border: 2px solid rgba(255,255,255,0.2);
+  border-top-color: var(--accent);
+  border-left-color: var(--accent-2);
   border-radius: 50%;
   animation: mfx-spin 0.6s linear infinite;
   vertical-align: -3px;
   margin-left: 8px;
 }
 @keyframes mfx-spin { to { transform: rotate(360deg); } }
+
+/* ===== Decorative drifting blobs — soft, slow-moving color washes used
+   behind hero/auth/loader content for a bit of life without being loud.
+   Usage: wrap a positioned container with overflow:hidden and drop
+   <span class="mfx-blob mfx-blob-1"></span><span class="mfx-blob mfx-blob-2"></span>
+   inside it, before the real content. ===== */
+.mfx-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(18px);
+  opacity: 0.35;
+  pointer-events: none;
+  z-index: 0;
+}
+.mfx-blob-1 {
+  width: 180px; height: 180px;
+  background: var(--accent-2);
+  top: -60px; right: -40px;
+  animation: mfx-drift-1 8s ease-in-out infinite;
+}
+.mfx-blob-2 {
+  width: 120px; height: 120px;
+  background: var(--accent);
+  bottom: -40px; left: -30px;
+  animation: mfx-drift-2 6s ease-in-out infinite;
+}
+@keyframes mfx-drift-1 { 0%, 100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-16px, 16px) scale(1.1); } }
+@keyframes mfx-drift-2 { 0%, 100% { transform: translate(0,0) scale(1); } 50% { transform: translate(14px, -12px) scale(0.9); } }
 
 .btn[disabled], .btn.is-loading {
   opacity: 0.7;
@@ -796,27 +913,111 @@ tr:hover td { background: rgba(244,228,193,0.03); }
 }
 
 /* Full-page loading overlay shown while a page's initial data is being
-   fetched, so the student sees a spinner instead of a blank page. */
+   fetched, so the student sees a spinner instead of a blank page. Two
+   slow blobs drift behind the loader so the wait feels alive rather
+   than a dead blank screen. */
 .mfx-page-loader {
   position: fixed; inset: 0; z-index: 9999;
   display: flex; align-items: center; justify-content: center;
   background: var(--bg);
+  overflow: hidden;
   transition: opacity 0.2s ease;
 }
 .mfx-page-loader.is-hiding { opacity: 0; pointer-events: none; }
-.mfx-page-loader-content { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.mfx-page-loader-content {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+}
 .mfx-page-loader-credit {
   font-family: var(--font-display);
   font-size: 1rem; font-weight: 700; letter-spacing: 0.5px;
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
 }
-.mfx-page-loader-ring {
-  width: 44px; height: 44px;
-  border: 3px solid rgba(255,255,255,0.15);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: mfx-spin 0.7s linear infinite;
+/* Exploding-cubes page-loader — SIX small individual 3D-ish cubes that
+   burst outward in different directions (tumbling as they fly), then
+   snap back together, on a loop, while the whole cluster slowly spins.
+   Reuses the exact markup already output by showPageLoader() in
+   app.js (.loader-cube-wrap > .loader-cube > 6x .face) — no HTML/JS
+   change needed, this file is a drop-in replacement for the old
+   page-loader CSS. */
+.loader-cube-wrap {
+  width: 110px; height: 110px;
+  display: flex; align-items: center; justify-content: center;
+}
+.loader-cube {
+  position: relative;
+  width: 0; height: 0;
+  animation: cube-cluster-spin 6s linear infinite;
+}
+.loader-cube .face {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 14px; height: 14px;
+  margin: -7px 0 0 -7px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border-radius: 3px;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.35);
+}
+/* Fake top + side faces on each little cube (classic CSS isometric-cube
+   trick) so every burst piece reads as an actual small cube, not a flat
+   square, while it flies and tumbles. */
+.loader-cube .face::before {
+  content: '';
+  position: absolute;
+  top: -6px; left: 1px;
+  width: 14px; height: 7px;
+  background: var(--accent-light);
+  opacity: 0.9;
+  transform: skewX(-38deg);
+  border-radius: 2px 2px 0 0;
+}
+.loader-cube .face::after {
+  content: '';
+  position: absolute;
+  top: 1px; left: 13px;
+  width: 7px; height: 14px;
+  background: var(--accent-2);
+  opacity: 0.7;
+  transform: skewY(-38deg);
+  border-radius: 0 2px 2px 0;
+}
+
+.face-front  { animation: explode-front  1.5s ease-in-out infinite; }
+.face-back   { animation: explode-back   1.5s ease-in-out infinite 0.06s; }
+.face-right  { animation: explode-right  1.5s ease-in-out infinite 0.12s; }
+.face-left   { animation: explode-left   1.5s ease-in-out infinite 0.18s; }
+.face-top    { animation: explode-top    1.5s ease-in-out infinite 0.24s; }
+.face-bottom { animation: explode-bottom 1.5s ease-in-out infinite 0.3s; }
+
+@keyframes cube-cluster-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes explode-front {
+  0%, 12%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.95; }
+  50% { transform: translate(0, -46px) rotate(220deg); opacity: 0.35; }
+}
+@keyframes explode-back {
+  0%, 12%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.95; }
+  50% { transform: translate(0, 46px) rotate(-220deg); opacity: 0.35; }
+}
+@keyframes explode-right {
+  0%, 12%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.95; }
+  50% { transform: translate(46px, 0) rotate(260deg); opacity: 0.35; }
+}
+@keyframes explode-left {
+  0%, 12%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.95; }
+  50% { transform: translate(-46px, 0) rotate(-260deg); opacity: 0.35; }
+}
+@keyframes explode-top {
+  0%, 12%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.95; }
+  50% { transform: translate(-34px, -34px) rotate(180deg); opacity: 0.35; }
+}
+@keyframes explode-bottom {
+  0%, 12%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.95; }
+  50% { transform: translate(34px, 34px) rotate(-180deg); opacity: 0.35; }
 }
 
 /* Full-card "pending results" state after submit but before the teacher
