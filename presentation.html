@@ -25,28 +25,43 @@
       </div>
     </div>
   </nav>
-
   <section class="viewer-section" style="padding: 110px 0 60px;">
     <div class="container viewer-container" style="max-width:1000px;">
       <h1 id="presentation-title" style="font-size:clamp(1.4rem, 3vw, 2rem); margin-bottom:20px;">جاري التحميل...</h1>
+      <div id="presentation-viewer" class="viewer-frame-wrap" style="position:relative; padding-top:62%; background:#000; border:1px solid var(--border); border-radius:var(--radius-lg); overflow:hidden;">
+        <!-- Custom image-based viewer (used when the presentation was
+             converted to Google Slides). Hidden by default; shown by
+             initSlideViewer_() in app.js. -->
+        <img id="slide-image" draggable="false" style="position:absolute; inset:0; width:100%; height:100%; object-fit:contain; display:none; background:#000;">
 
-      <div id="presentation-viewer" class="viewer-frame-wrap" style="position:relative; padding-top:62%; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-lg); overflow:hidden;">
+        <!-- Legacy Google Slides/file iframe embed — kept as the fallback
+             for presentations that were never converted to Slides, so
+             nothing already working breaks. -->
         <iframe id="presentation-frame" style="position:absolute; inset:0; width:100%; height:100%; border:0;" allowfullscreen></iframe>
-        <!-- Renders on top of the iframe (pointer-events:none so slide
-             navigation inside the embed still works) so any screenshot or
+
+        <!-- Renders on top of the viewer (pointer-events:none so slide
+             navigation still works underneath) so any screenshot or
              recording carries the student's name/code and is traceable. -->
-        <div id="presentation-watermark" style="position:absolute; inset:0; pointer-events:none; overflow:hidden;"></div>
-        <div id="presentation-blur-cover" style="position:absolute; inset:0; backdrop-filter:blur(20px); background:rgba(10,10,15,0.85); display:none; align-items:center; justify-content:center; text-align:center; padding:20px; color:var(--text-secondary); font-size:0.9rem;">
+        <div id="presentation-watermark" style="position:absolute; inset:0; pointer-events:none; overflow:hidden; z-index:4;"></div>
+        <div id="presentation-blur-cover" style="position:absolute; inset:0; backdrop-filter:blur(20px); background:rgba(10,10,15,0.85); display:none; align-items:center; justify-content:center; text-align:center; padding:20px; color:var(--text-secondary); font-size:0.9rem; z-index:6;">
           العرض مخفي مؤقتًا — ارجع لصفحة العرض عشان يظهر تاني
         </div>
-      </div>
 
+        <!-- Custom nav bar — shown only in image-viewer mode. -->
+        <div id="slide-controls" style="position:absolute; inset-inline:0; bottom:0; display:none; align-items:center; justify-content:space-between; gap:10px; padding:12px 16px; background:linear-gradient(transparent, rgba(0,0,0,0.7)); z-index:5;">
+          <button type="button" class="btn btn-ghost" id="slide-prev-btn" onclick="prevSlide()" style="color:#fff;">◀ السابق</button>
+          <span id="slide-counter" style="color:#fff; font-weight:600; font-size:0.9rem; white-space:nowrap;"></span>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="btn btn-ghost" id="slide-fullscreen-btn" onclick="toggleSlideFullscreen()" style="color:#fff;">⛶</button>
+            <button type="button" class="btn btn-primary" id="slide-next-btn" onclick="nextSlide()">التالي ▶</button>
+          </div>
+        </div>
+      </div>
       <p style="margin-top:16px; text-align:center; color:var(--text-muted); font-size:0.8rem;">
         هذا العرض خاص بك ولا يجوز مشاركته أو تصويره — اسمك وكودك ظاهرين عليه.
       </p>
     </div>
   </section>
-
   <script src="js/app.js"></script>
 </body>
 </html>
