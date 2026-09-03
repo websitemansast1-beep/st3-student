@@ -1,8 +1,5 @@
 // ===== MFX Student App =====
-// ===== MFX Admin App =====
 const API = 'https://web-production-dcdc4.up.railway.app/api';
-
-
 
 function toast(msg) {
   let t = document.querySelector('.toast');
@@ -14,6 +11,59 @@ function toast(msg) {
   requestAnimationFrame(() => t.classList.add('on'));
   setTimeout(() => { t.classList.remove('on'); setTimeout(() => t.remove(), 400); }, 3000);
 }
+
+// ===== Global click rate-limiter =====
+// Blocks a SECOND click on the same button/link WHILE its first click's
+// own action is still actually running — site-wide, for every page.
+// This is separate from — and a backstop for — withButtonLock below:
+// that only protects the specific actions someone remembered to wrap
+// (with a visible spinner too). This catches everything else (plain
+// onclick="..." handlers: publish/hide/delete buttons, pagination, tabs)
+// without having to touch every single one of them individually. It does
+// NOT affect the exam's answer-option clicks (pickOpt/toggleMultiOpt) —
+// those go through their own delegated listener on <label class="opt">
+// elements, which this selector doesn't match, so answering stays instant.
+//
+// How it works: a single listener on document, in the CAPTURE phase (so
+// it runs before the target element's own onclick), marks the clicked
+// element "busy" and lets the click through as normal. A SECOND click on
+// that SAME element while it's still busy is stopped before it ever
+// reaches the element's own handler. What clears "busy" is not a guessed
+// fixed delay — it's mfxActiveApiCalls (see api() above): if the click
+// triggered a network request, the button stays locked for exactly as
+// long as that request takes, then unlocks the instant it settles — a
+// slow save stays protected the whole time it's slow, a fast one
+// unlocks right away. If the click never touched the network at all (a
+// pure UI toggle like a tab or accordion), it unlocks almost
+// immediately instead of also being held for the network case's longer
+// window. A 15s safety cap prevents a button from ever being stuck
+// locked forever if something genuinely never resolves. Clicking a
+// DIFFERENT button right after is unaffected either way, since "busy" is
+// tracked per-element, not globally.
+document.addEventListener('click', function (e) {
+  const el = e.target.closest('button, .btn, [onclick]');
+  if (!el) return;
+  if (el.dataset.mfxBusy === '1') {
+    e.stopPropagation();
+    e.preventDefault();
+    return;
+  }
+  el.dataset.mfxBusy = '1';
+  const before = mfxActiveApiCalls;
+  setTimeout(() => {
+    if (mfxActiveApiCalls > before) {
+      const check = setInterval(() => {
+        if (mfxActiveApiCalls <= before) {
+          clearInterval(check);
+          delete el.dataset.mfxBusy;
+        }
+      }, 100);
+      setTimeout(() => { clearInterval(check); delete el.dataset.mfxBusy; }, 15000);
+    } else {
+      delete el.dataset.mfxBusy;
+    }
+  }, 50);
+}, true);
 
 // ===== Global loading / anti-duplicate-click helpers =====
 // Every important action (login, start exam, save, submit) routes through
@@ -138,6 +188,11 @@ async function refreshAccessToken() {
   }
 }
 
+// Tracks how many api() calls are currently in flight — used by the
+// click rate-limiter below to know exactly when a button's own action
+// has actually finished, instead of guessing with a fixed timer.
+let mfxActiveApiCalls = 0;
+
 async function api(path, opts = {}) {
   const url = API + path;
   const doFetch = async () => {
@@ -146,6 +201,7 @@ async function api(path, opts = {}) {
     if (token) headers['Authorization'] = 'Bearer ' + token;
     return fetch(url, { ...opts, headers: { ...headers, ...opts.headers } });
   };
+  mfxActiveApiCalls++;
   try {
     let res = await doFetch();
     // A 401 mid-session (the token expired while the student was
@@ -160,6 +216,7 @@ async function api(path, opts = {}) {
     }
     return await res.json();
   } catch (e) { toast('❌ خطأ في الاتصال'); throw e; }
+  finally { mfxActiveApiCalls--; }
 }
 
 // Auth check — runs on every page load. Instead of logging the student
@@ -188,7 +245,7 @@ async function requireAuth() {
   return true;
 }
 
-// Login
+// Login مع timeout وretry logic
 async function handleLogin(e) {
   e.preventDefault();
   const form = document.getElementById('login-form');
@@ -201,62 +258,155 @@ async function handleLogin(e) {
 
   await withButtonLock(btn, 'جاري تسجيل الدخول...', async () => {
     if (form) form.querySelectorAll('input').forEach((i) => i.disabled = true);
-    try {
-      const data = await api('/auth/student-login', {
-        method: 'POST',
-        body: JSON.stringify({ code, name, phone, guardianPhone })
-      });
-      if (data && data.token) {
-        setToken(data.token);
-        if (data.refreshToken) setRefreshToken(data.refreshToken);
-        localStorage.setItem('mfx_student_user', JSON.stringify(data.user));
-        toast('✅ تم تسجيل الدخول');
-        location.href = 'index.html'; // single navigation — no repeated reloads
-      } else {
-        toast('❌ ' + ((data && data.error) || 'كود أو اسم غير صحيح'));
-        if (form) form.querySelectorAll('input').forEach((i) => i.disabled = false);
+    
+    const loginWithTimeout = async (attempt = 1) => {
+      const maxAttempts = 3;
+      const timeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout')), 8000) // 8 ثواني timeout
+      );
+      
+      try {
+        const loginPromise = api('/auth/student-login', {
+          method: 'POST',
+          body: JSON.stringify({ code, name, phone, guardianPhone })
+        });
+        
+        const data = await Promise.race([loginPromise, timeout]);
+        
+        if (data && data.token) {
+          setToken(data.token);
+          if (data.refreshToken) setRefreshToken(data.refreshToken);
+          localStorage.setItem('mfx_student_user', JSON.stringify(data.user));
+          toast('✅ تم تسجيل الدخول');
+          location.href = 'index.html';
+          return true;
+        } else {
+          toast('❌ ' + ((data && data.error) || 'كود أو اسم غير صحيح'));
+          if (form) form.querySelectorAll('input').forEach((i) => i.disabled = false);
+          return false;
+        }
+      } catch (err) {
+        if (attempt < maxAttempts) {
+          console.log(`Login attempt ${attempt} failed, retrying... (${maxAttempts - attempt} retries left)`);
+          await new Promise(r => setTimeout(r, 1000)); // انتظر ثانية قبل المحاولة التالية
+          return loginWithTimeout(attempt + 1);
+        } else {
+          toast('❌ فشل تسجيل الدخول. تحقق من البيانات والاتصال ثم حاول مجدداً');
+          if (form) form.querySelectorAll('input').forEach((i) => i.disabled = false);
+          return false;
+        }
       }
-    } catch (err) {
-      if (form) form.querySelectorAll('input').forEach((i) => i.disabled = false);
-    }
+    };
+    
+    await loginWithTimeout();
   });
 }
 
-// Load my courses
+// Load my courses مع retry logic ومعالجة أفضل للأخطاء
 async function loadMyCourses() {
+  const grid = document.getElementById('my-courses');
+  if (!grid) return;
+
+  const fetchMyCourses = async (attempt = 1) => {
+    const maxAttempts = 3;
+    try {
+      const data = await api('/students/my-courses');
+      if (!data || !data.courses) {
+        if (attempt < maxAttempts) {
+          await new Promise(r => setTimeout(r, 500));
+          return fetchMyCourses(attempt + 1);
+        }
+        return null;
+      }
+      return data;
+    } catch (e) {
+      if (attempt < maxAttempts) {
+        console.warn(`Fetch courses attempt ${attempt} failed, retrying...`);
+        await new Promise(r => setTimeout(r, 500));
+        return fetchMyCourses(attempt + 1);
+      }
+      throw e;
+    }
+  };
+
+  // Instant path: إذا كانت البيانات موجودة في الكاش
+  const cached = mfxCacheGet_('my-courses');
+  if (cached) {
+    renderMyCourses_(cached);
+    fetchMyCourses().then((fresh) => {
+      if (fresh) { mfxCacheSet_('my-courses', fresh); renderMyCourses_(fresh); }
+    }).catch((e) => { console.warn('Background fetch failed:', e); });
+    startPeriodicRefresh_('my-courses', fetchMyCourses, renderMyCourses_);
+    return;
+  }
+
+  try {
+    const data = await fetchMyCourses();
+    if (data) {
+      mfxCacheSet_('my-courses', data);
+      renderMyCourses_(data);
+    } else {
+      showDataError_(grid, 'courses-empty', 'فشل تحميل الكورسات. يرجى تحديث الصفحة.');
+    }
+    startPeriodicRefresh_('my-courses', fetchMyCourses, renderMyCourses_);
+  } catch (e) {
+    showDataError_(grid, 'courses-empty', 'فشل تحميل الكورسات. يرجى تحديث الصفحة.');
+  }
+}
+
+// دالة مساعدة لعرض رسالة خطأ مع زر إعادة تحميل
+function showDataError_(container, emptyElementId, message) {
+  container.innerHTML = '';
+  const empty = document.getElementById(emptyElementId);
+  if (empty) {
+    empty.style.display = 'block';
+    // أضف رسالة خطأ إن لم تكن موجودة
+    if (!empty.querySelector('.error-message')) {
+      const errorDiv = document.createElement('div');
+      errorDiv.className = 'error-message';
+      errorDiv.style.cssText = 'text-align:center;padding:20px;color:#e74c3c;font-size:14px;';
+      errorDiv.innerHTML = `<p>${message}</p><button onclick="location.reload()" style="margin-top:10px;padding:8px 16px;background:#e74c3c;color:white;border:none;border-radius:4px;cursor:pointer;">إعادة تحميل</button>`;
+      empty.appendChild(errorDiv);
+    }
+  }
+}
+
+function renderMyCourses_(data) {
   const grid = document.getElementById('my-courses');
   const empty = document.getElementById('courses-empty');
   if (!grid) return;
-  try {
-    const data = await api('/students/my-courses');
-    grid.innerHTML = '';
-    if (!data.courses || !data.courses.length) {
-      if (empty) empty.style.display = 'block';
-      return;
+  grid.innerHTML = '';
+  if (!data || !data.courses || !data.courses.length) {
+    if (empty) {
+      empty.style.display = 'block';
+      // امسح أي رسالة خطأ سابقة
+      const errorMsg = empty.querySelector('.error-message');
+      if (errorMsg) errorMsg.remove();
     }
-    if (empty) empty.style.display = 'none';
-    data.courses.forEach(c => {
-      const div = document.createElement('div');
-      div.className = 'card';
-      div.innerHTML = `
-        <div class="card-img">${c.icon || '📚'}</div>
-        <div class="card-body">
-          <span class="card-tag">${c.tag || 'كورس'}</span>
-          <h3>${escapeHtml(c.title)}</h3>
-          <p>${escapeHtml(c.description || '')}</p>
-          <div style="margin:12px 0;">
-            <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:0.85rem;">
-              <span style="color:var(--text-secondary);">التقدم</span>
-              <span style="color:var(--accent-light); font-weight:600;">${c.progress || 0}%</span>
-            </div>
-            <div class="prog"><div class="prog-fill" style="width:${c.progress || 0}%"></div></div>
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  data.courses.forEach(c => {
+    const div = document.createElement('div');
+    div.className = 'card';
+    div.innerHTML = `
+      <div class="card-img">${c.icon || '📚'}</div>
+      <div class="card-body">
+        <span class="card-tag">${c.tag || 'كورس'}</span>
+        <h3>${escapeHtml(c.title)}</h3>
+        <p>${escapeHtml(c.description || '')}</p>
+        <div style="margin:12px 0;">
+          <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:0.85rem;">
+            <span style="color:var(--text-secondary);">التقدم</span>
+            <span style="color:var(--accent-light); font-weight:600;">${c.progress || 0}%</span>
           </div>
-          <a href="course.html?id=${c.id}" class="btn btn-primary" style="width:100%;">متابعة الكورس</a>
+          <div class="prog"><div class="prog-fill" style="width:${c.progress || 0}%"></div></div>
         </div>
-      `;
-      grid.appendChild(div);
-    });
-  } catch (e) { grid.innerHTML = ''; if (empty) empty.style.display = 'block'; }
+        <a href="course.html?id=${c.id}" class="btn btn-primary" style="width:100%;">متابعة الكورس</a>
+      </div>
+    `;
+    grid.appendChild(div);
+  });
 }
 
 // Load course detail
@@ -264,28 +414,45 @@ async function loadCourse() {
   const params = new URLSearchParams(location.search);
   const id = params.get('id');
   if (!id) { toast('❌ كورس غير موجود'); return; }
+  const cacheKey = 'course-' + id;
+
+  // loadCourseExams renders the exams list itself as a side effect (it's
+  // not just a data fetch) and has its own loading state, so it always
+  // runs live — only the units/title/description data below goes
+  // through the cache.
+  loadCourseExams(id);
+
+  const fetchCourse = () => api('/units?courseId=' + id);
+
+  const cached = mfxCacheGet_(cacheKey);
+  if (cached) {
+    renderCourse_(cached);
+    startPeriodicRefresh_(cacheKey, fetchCourse, renderCourse_);
+    return;
+  }
+
   try {
-    // These two are independent — fire them together, and reuse the
-    // course-detail response for the units accordion instead of the old
-    // code's second (redundant) call to the same endpoint.
-    const [c] = await Promise.all([
-      api('/units?courseId=' + id),
-      loadCourseExams(id)
-    ]);
-    document.getElementById('course-title').textContent = c.title || 'كورس';
-    document.getElementById('course-desc').textContent = c.description || '';
-    document.getElementById('course-meta').innerHTML = `
-      <span>📚 ${c.units || 0} وحدة</span>
-      <span>🎥 ${c.videos || 0} فيديو</span>
-      <span>📝 ${c.exams || 0} امتحان</span>
-    `;
-    document.getElementById('course-badges').innerHTML = `
-      ${c.popular ? '<span class="badge badge-warn">🔥 شائع</span>' : ''}
-      <span class="badge badge-ok">✓ مسجل</span>
-    `;
-    renderUnits(c.units || []);
-    renderVocabList_(c.vocabulary || []);
+    const c = await fetchCourse();
+    mfxCacheSet_(cacheKey, c);
+    renderCourse_(c);
+    startPeriodicRefresh_(cacheKey, fetchCourse, renderCourse_);
   } catch (e) { toast('❌ فشل تحميل الكورس'); }
+}
+
+function renderCourse_(c) {
+  document.getElementById('course-title').textContent = c.title || 'كورس';
+  document.getElementById('course-desc').textContent = c.description || '';
+  document.getElementById('course-meta').innerHTML = `
+    <span>📚 ${c.units || 0} وحدة</span>
+    <span>🎥 ${c.videos || 0} فيديو</span>
+    <span>📝 ${c.exams || 0} امتحان</span>
+  `;
+  document.getElementById('course-badges').innerHTML = `
+    ${c.popular ? '<span class="badge badge-warn">🔥 شائع</span>' : ''}
+    <span class="badge badge-ok">✓ مسجل</span>
+  `;
+  renderUnits(c.units || []);
+  renderVocabList_(c.vocabulary || []);
 }
 
 // Course vocabulary — AI-read words/phrases (Web Speech API, no audio
@@ -416,10 +583,33 @@ async function loadCourseExams(courseId) {
   const list = document.getElementById('exams-list');
   const empty = document.getElementById('exams-empty');
   if (!list) return;
+  
+  const fetchExams = async (attempt = 1) => {
+    const maxAttempts = 3;
+    try {
+      const data = await api('/exams?courseId=' + courseId);
+      if (!data) {
+        if (attempt < maxAttempts) {
+          await new Promise(r => setTimeout(r, 500));
+          return fetchExams(attempt + 1);
+        }
+        return null;
+      }
+      return data;
+    } catch (e) {
+      if (attempt < maxAttempts) {
+        console.warn(`Fetch exams attempt ${attempt} failed, retrying...`);
+        await new Promise(r => setTimeout(r, 500));
+        return fetchExams(attempt + 1);
+      }
+      throw e;
+    }
+  };
+  
   try {
-    const data = await api('/exams?courseId=' + courseId);
+    const data = await fetchExams();
     list.innerHTML = '';
-    const exams = data.exams || [];
+    const exams = data && data.exams ? data.exams : [];
     if (!exams.length) { if (empty) empty.style.display = 'block'; return; }
     if (empty) empty.style.display = 'none';
     exams.forEach(ex => {
@@ -440,7 +630,10 @@ async function loadCourseExams(courseId) {
       `;
       list.appendChild(div);
     });
-  } catch (e) { list.innerHTML = ''; if (empty) empty.style.display = 'block'; }
+  } catch (e) {
+    console.warn('Load exams failed:', e);
+    showDataError_(list, 'exams-empty', 'فشل تحميل الامتحانات. يرجى تحديث الصفحة.');
+  }
 }
 
 // Exam
@@ -808,30 +1001,64 @@ async function confirmSubmit() {
   clearInterval(timerInt);
   clearInterval(autosaveInt);
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-  const confirmBtn = document.querySelector('#submit-modal .btn-primary');
-  toast('⏳ جاري تسليم الامتحان...');
-  await withButtonLock(confirmBtn, 'جاري التسليم...', async () => {
-    try {
-      const data = await api('/attempts/' + examState.attemptId + '/submit', {
-        method: 'POST',
-        body: JSON.stringify({ answers: examState.answers })
-      });
-      if (!data || !data.ok) {
-        toast('❌ ' + ((data && data.error) || 'فشل تسليم الامتحان'));
-        return;
-      }
-      clearAnswersLocally_();
-      showSubmissionReceived_();
 
-      if (data.data && data.data.status === 'COMPLETED') {
-        // Already flushed (e.g. queue was empty and flushed instantly) —
-        // no need to poll at all.
-        showResult(data.data);
-        return;
-      }
-      pollSubmissionStatus_(examState.attemptId);
-    } catch (e) {}
-  });
+  // Truly optimistic submit: the student sees "✓ تم استلام إجاباتك"
+  // INSTANTLY — no waiting on the network at all. This is safe because
+  // every answer is already autosaved to the server every 10s AND kept
+  // in localStorage on every change (see saveAnswersLocally_), so the
+  // final POST /submit call below is really just "finalize + start
+  // grading", not the only copy of the student's answers. It's sent
+  // right after, in the background, with automatic retries — the
+  // student is only ever bothered with an error if it still hasn't
+  // gone through after those retries.
+  showSubmissionReceived_();
+  submitExamInBackground_(examState.attemptId, examState.answers);
+}
+
+// keepalive:true asks the browser to let this specific request finish
+// even if the page is being unloaded right as it fires (e.g. the
+// student closes the tab the instant they see "تم") — the same
+// protection a normal awaited request wouldn't have gotten anyway, so
+// this is a pure improvement, not a new risk. (Fetch's keepalive has a
+// combined ~64KB request-body cap across in-flight keepalive requests;
+// a typical exam answer payload is well under that, so this is a safe
+// default rather than something that needs its own fallback path.)
+async function submitExamInBackground_(attemptId, answers, attemptNum = 1) {
+  const MAX_ATTEMPTS = 3;
+  try {
+    const data = await api('/attempts/' + attemptId + '/submit', {
+      method: 'POST',
+      keepalive: true,
+      body: JSON.stringify({ answers })
+    });
+    if (!data || !data.ok) throw new Error((data && data.error) || 'فشل تسليم الامتحان');
+
+    clearAnswersLocally_();
+    if (data.data && data.data.status === 'COMPLETED') {
+      // Already flushed (e.g. queue was empty and flushed instantly) —
+      // no need to poll at all.
+      showResult(data.data);
+      return;
+    }
+    pollSubmissionStatus_(attemptId);
+  } catch (e) {
+    if (attemptNum < MAX_ATTEMPTS) {
+      // Silent retry — the student already sees "تم", so a flaky
+      // connection resolving itself a couple seconds later should never
+      // need to interrupt them with anything.
+      setTimeout(() => submitExamInBackground_(attemptId, answers, attemptNum + 1), 1500 * attemptNum);
+    } else {
+      // Only now, after automatic retries are exhausted, does the
+      // student need to know — same recovery UI ("إعادة المحاولة") used
+      // elsewhere in this flow, so it's a familiar state, not a new one.
+      setResultModalState_({
+        icon: '⚠️',
+        title: 'حدث خطأ أثناء حفظ الامتحان',
+        score: '', rank: 'إجاباتك محفوظة محليًا ولم تُفقد — جرّب "إعادة المحاولة"', time: '',
+        showRetry: true
+      });
+    }
+  }
 }
 
 // Step 1 of the two-step message from the spec: confirm receipt instantly,
@@ -870,13 +1097,7 @@ function setResultModalState_({ icon, title, score, rank, time, showRetry }) {
 // queueing (still idempotent — the attempt id is unchanged).
 async function retrySubmit_() {
   showSubmissionReceived_();
-  pollSubmissionStatus_(examState.attemptId);
-  try {
-    await api('/attempts/' + examState.attemptId + '/submit', {
-      method: 'POST',
-      body: JSON.stringify({ answers: examState.answers })
-    });
-  } catch (e) {}
+  submitExamInBackground_(examState.attemptId, examState.answers);
 }
 
 // Graduated polling: 2s, 4s, 8s, then holds at 8s. Stops immediately on
@@ -954,8 +1175,56 @@ async function loadDashboard() {
   const user = getUser();
   document.getElementById('student-name').textContent = user.name || '—';
   document.getElementById('nav-name').textContent = user.name || '—';
+
+  const fetchDashboard = async (attempt = 1) => {
+    const maxAttempts = 3;
+    try {
+      const data = await api('/students/dashboard');
+      if (!data) {
+        if (attempt < maxAttempts) {
+          await new Promise(r => setTimeout(r, 500));
+          return fetchDashboard(attempt + 1);
+        }
+        return null;
+      }
+      return data;
+    } catch (e) {
+      if (attempt < maxAttempts) {
+        console.warn(`Fetch dashboard attempt ${attempt} failed, retrying...`);
+        await new Promise(r => setTimeout(r, 500));
+        return fetchDashboard(attempt + 1);
+      }
+      throw e;
+    }
+  };
+
+  // Same instant-from-cache, refresh-in-background pattern as
+  // loadMyCourses — see prefetchLikelyNextPages_() for where the cache
+  // gets warmed up ahead of time.
+  const cached = mfxCacheGet_('dashboard');
+  if (cached) {
+    renderDashboard_(cached);
+    fetchDashboard().then((fresh) => {
+      if (fresh) { mfxCacheSet_('dashboard', fresh); renderDashboard_(fresh); }
+    }).catch((e) => { console.warn('Background fetch dashboard failed:', e); });
+    startPeriodicRefresh_('dashboard', fetchDashboard, renderDashboard_);
+    return;
+  }
+
   try {
-    const data = await api('/students/dashboard');
+    const data = await fetchDashboard();
+    if (data) {
+      mfxCacheSet_('dashboard', data);
+      renderDashboard_(data);
+    }
+    startPeriodicRefresh_('dashboard', fetchDashboard, renderDashboard_);
+  } catch (e) {
+    console.warn('Dashboard load failed:', e);
+  }
+}
+
+function renderDashboard_(data) {
+  try {
     if (data.courses != null) document.getElementById('dash-courses').textContent = data.courses;
     if (data.exams != null) document.getElementById('dash-exams').textContent = data.exams;
     if (data.avgScore != null) document.getElementById('dash-score').textContent = data.avgScore + '%';
@@ -1047,6 +1316,18 @@ async function loadDashboard() {
 let videoProgressTimer = null;
 let videoWatchState = { videoId: null, startedAt: 0, durationSeconds: 0, sentPercentage: 0 };
 
+// Pulls the file id out of any of Drive's common share-link shapes:
+//   .../file/d/FILEID/view?usp=sharing   .../open?id=FILEID   .../d/FILEID
+// Same helper the admin panel uses when a course link is pasted.
+function extractDriveFileId_(url) {
+  const patterns = [/\/d\/([a-zA-Z0-9_-]{10,})/, /[?&]id=([a-zA-Z0-9_-]{10,})/];
+  for (const re of patterns) {
+    const m = url.match(re);
+    if (m) return m[1];
+  }
+  return null;
+}
+
 async function loadVideoPage() {
   const params = new URLSearchParams(location.search);
   const id = params.get('id');
@@ -1058,8 +1339,21 @@ async function loadVideoPage() {
     document.getElementById('video-title').textContent = video.title || 'فيديو';
     document.getElementById('back-to-course').href = 'course.html?id=' + video.unitId;
     const frame = document.getElementById('video-frame');
-    if (frame && video.driveFileId) {
-      frame.src = 'https://drive.google.com/file/d/' + video.driveFileId + '/preview';
+    // BUG FIX (self-healing): videos added by pasting a normal Drive
+    // share link (.../view?usp=sharing) used to have that exact URL
+    // saved as driveUrl with no driveFileId — and a Drive /view URL
+    // refuses to load inside an <iframe> at all (shows a
+    // permission-style error) no matter how the file is actually
+    // shared; only the .../preview form embeds. Rather than requiring
+    // every already-saved video to be re-added from the admin panel,
+    // this pulls the file ID out of driveUrl on the fly whenever
+    // driveFileId wasn't stored, and always builds the correct
+    // embeddable /preview URL from it — fixing existing videos
+    // automatically, not just new ones.
+    const fallbackFileId = !video.driveFileId && video.driveUrl ? extractDriveFileId_(video.driveUrl) : null;
+    const resolvedFileId = video.driveFileId || fallbackFileId;
+    if (frame && resolvedFileId) {
+      frame.src = 'https://drive.google.com/file/d/' + resolvedFileId + '/preview';
     } else if (frame && video.driveUrl) {
       frame.src = video.driveUrl;
     }
@@ -1141,6 +1435,12 @@ async function deleteComment(commentId, videoId) {
 }
 
 // ===== Presentation viewer =====
+// mode 'images': the new custom in-platform viewer (slide images + our
+// own buttons/counter/keyboard/fullscreen — no Google UI visible).
+// mode 'iframe': the old Google Slides/file embed, kept as a fallback
+// for any presentation that hasn't been converted to Slides yet.
+let slideViewerState = { images: [], current: 0, mode: 'iframe' };
+
 async function loadPresentationPage() {
   const params = new URLSearchParams(location.search);
   const id = params.get('id');
@@ -1151,14 +1451,126 @@ async function loadPresentationPage() {
     if (!item) { toast('❌ الملف غير موجود'); return; }
     document.getElementById('presentation-title').textContent = item.title || 'عرض تقديمي';
     document.getElementById('back-to-course').href = 'course.html?id=' + item.unitId;
-    const frame = document.getElementById('presentation-frame');
-    const previewUrl = item.driveFileId
-      ? 'https://drive.google.com/file/d/' + item.driveFileId + '/preview'
-      : item.driveUrl;
-    if (frame) frame.src = previewUrl;
+
+    let slideImages = null;
+    if (item.slidesId) {
+      try {
+        const slidesRes = await api('/presentations/' + id + '/slides');
+        if (slidesRes && slidesRes.ok && slidesRes.data && slidesRes.data.slideImages && slidesRes.data.slideImages.length) {
+          slideImages = slidesRes.data.slideImages;
+        }
+      } catch (e) {
+        // getSlideImages failed (quota, Apps Script hiccup, etc.) — fall
+        // through to the iframe fallback below rather than leaving the
+        // student with a blank page.
+      }
+    }
+
+    if (slideImages) initSlideViewer_(slideImages);
+    else initIframeViewer_(item);
+
     renderPresentationWatermark();
     setupPresentationDeterrents();
   } catch (e) { toast('❌ فشل تحميل العرض التقديمي'); }
+}
+
+function initIframeViewer_(item) {
+  slideViewerState.mode = 'iframe';
+  const frame = document.getElementById('presentation-frame');
+  const img = document.getElementById('slide-image');
+  const controls = document.getElementById('slide-controls');
+  if (img) img.style.display = 'none';
+  if (controls) controls.style.display = 'none';
+  if (frame) {
+    frame.style.display = 'block';
+    // Trust the URL saved at upload/link time first — it's already the
+    // correct embeddable form (a Slides /embed URL for converted
+    // PowerPoint uploads, giving real next/previous slide arrows that
+    // work on both desktop and phone; or the right /preview form for a
+    // pasted link). Only fall back to rebuilding a generic file-preview
+    // URL from driveFileId if nothing better was stored.
+    const previewUrl = item.driveUrl
+      || (item.driveFileId ? 'https://drive.google.com/file/d/' + item.driveFileId + '/preview' : '');
+    frame.src = previewUrl;
+  }
+}
+
+function initSlideViewer_(slideImages) {
+  slideViewerState.mode = 'images';
+  slideViewerState.images = slideImages.slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+  slideViewerState.current = 0;
+
+  const frame = document.getElementById('presentation-frame');
+  const img = document.getElementById('slide-image');
+  const controls = document.getElementById('slide-controls');
+  if (frame) { frame.style.display = 'none'; frame.src = ''; }
+  if (img) img.style.display = 'block';
+  if (controls) controls.style.display = 'flex';
+
+  renderCurrentSlide_();
+  setupSlideKeyboardNav_();
+}
+
+function renderCurrentSlide_() {
+  const img = document.getElementById('slide-image');
+  const counter = document.getElementById('slide-counter');
+  const prevBtn = document.getElementById('slide-prev-btn');
+  const nextBtn = document.getElementById('slide-next-btn');
+  const { images, current } = slideViewerState;
+  if (img) img.src = images[current].imageUrl;
+  if (counter) counter.textContent = `شريحة ${current + 1} من ${images.length}`;
+  if (prevBtn) prevBtn.disabled = current === 0;
+  if (nextBtn) nextBtn.disabled = current === images.length - 1;
+  // Warm the browser cache for the next/previous slide so paging feels
+  // instant instead of showing a blank frame while it fetches.
+  [current - 1, current + 1].forEach((i) => {
+    if (i >= 0 && i < images.length) { const pre = new Image(); pre.src = images[i].imageUrl; }
+  });
+}
+
+function nextSlide() {
+  if (slideViewerState.mode !== 'images') return;
+  if (slideViewerState.current < slideViewerState.images.length - 1) {
+    slideViewerState.current += 1;
+    renderCurrentSlide_();
+  }
+}
+function prevSlide() {
+  if (slideViewerState.mode !== 'images') return;
+  if (slideViewerState.current > 0) {
+    slideViewerState.current -= 1;
+    renderCurrentSlide_();
+  }
+}
+
+// Attached once via this flag since loadPresentationPage only runs once
+// per page load — guards against a future double-init adding the
+// listener twice.
+let slideKeyboardNavAttached_ = false;
+function setupSlideKeyboardNav_() {
+  if (slideKeyboardNavAttached_) return;
+  slideKeyboardNavAttached_ = true;
+  document.addEventListener('keydown', (e) => {
+    if (slideViewerState.mode !== 'images') return;
+    const tag = document.activeElement && document.activeElement.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    // Right arrow = next, left = previous — matches PowerPoint's own
+    // default keys regardless of the page's RTL layout, so it behaves
+    // the way a student already expects from PowerPoint/Slides itself.
+    if (e.key === 'ArrowRight') { e.preventDefault(); nextSlide(); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); prevSlide(); }
+    else if (e.key === 'Escape' && document.fullscreenElement) { document.exitFullscreen(); }
+  });
+}
+
+function toggleSlideFullscreen() {
+  const wrap = document.getElementById('presentation-viewer');
+  if (!wrap) return;
+  if (!document.fullscreenElement) {
+    wrap.requestFullscreen?.().catch(() => toast('❌ تعذر فتح وضع ملء الشاشة'));
+  } else {
+    document.exitFullscreen();
+  }
 }
 
 // Tiles the student's name + code across the presentation area so any
@@ -1308,6 +1720,86 @@ function toggleAcc(header) {
 }
 
 // Init
+// ===== Cross-page cache (sessionStorage) =====
+// This is a traditional multi-page site — every navigation (index.html ->
+// course.html -> ...) is a full page reload, so a plain in-memory JS
+// variable wouldn't survive it. sessionStorage does (same tab, cleared
+// when the tab closes). Used so "كورساتي" / "لوحتي" can render INSTANTLY
+// from a cache that was quietly warmed up in the background a moment
+// earlier — either by an earlier visit to that same page, or by
+// prefetchLikelyNextPages_() below — instead of waiting on a fresh
+// Google Sheets round-trip every single time.
+const MFX_CACHE_TTL_MS = 30 * 60 * 1000; // 30 دقيقة بدل دقيقة واحدة
+function mfxCacheGet_(key) {
+  try {
+    const raw = sessionStorage.getItem('mfx_cache_' + key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Date.now() - parsed.at > MFX_CACHE_TTL_MS) return null;
+    // التحقق من أن البيانات ليست فارغة
+    const data = parsed.data;
+    if (!data || (data && typeof data === 'object' && Object.keys(data).length === 0)) return null;
+    return data;
+  } catch (e) {
+    console.warn('Cache read error:', e);
+    return null;
+  }
+}
+function mfxCacheSet_(key, data) {
+  if (!data || (data && typeof data === 'object' && Object.keys(data).length === 0)) {
+    // عدم حفظ بيانات فارغة
+    return false;
+  }
+  try {
+    sessionStorage.setItem('mfx_cache_' + key, JSON.stringify({ data, at: Date.now() }));
+    return true;
+  } catch (e) {
+    console.warn('Cache write error:', e);
+    // إذا sessionStorage معطّل (incognito mode مثلاً)، استمر بدونه
+    return false;
+  }
+}
+
+// Keeps a page's data "live" for as long as the student stays on it —
+// re-fetches every 3 minutes in the background, updates the cache, and
+// re-renders in place, so someone sitting on their dashboard or a course
+// page for a while sees it stay current on its own, the same way the
+// instant cached-render + one-off background revalidate already does for
+// the moment the page first opens. Silent on failure (a missed refresh
+// just tries again next cycle); torn down automatically when the page is
+// left, since navigating anywhere in this multi-page site is a full
+// reload that clears every JS timer with it — nothing to clean up by hand.
+const MFX_PERIODIC_REFRESH_MS = 3 * 60 * 1000;
+function startPeriodicRefresh_(key, fetchFn, renderFn) {
+  setInterval(async () => {
+    try {
+      const fresh = await fetchFn();
+      if (fresh) { mfxCacheSet_(key, fresh); renderFn(fresh); }
+    } catch (e) {}
+  }, MFX_PERIODIC_REFRESH_MS);
+}
+
+// Quietly re-fetches the pages a student is most likely to open NEXT
+// (their course list, their dashboard) in the background and caches the
+// result, so navigating there shortly after feels instant instead of
+// waiting on Sheets again. Deliberately starts a beat AFTER the current
+// page's own content is already on screen — never competes with it for
+// bandwidth/the Apps Script concurrency slots — and never shows anything
+// to the student on failure; a missed prefetch just means the next page
+// loads normally, exactly like it does today.
+function prefetchLikelyNextPages_() {
+  setTimeout(async () => {
+    try {
+      const courses = await api('/students/my-courses');
+      if (courses) mfxCacheSet_('my-courses', courses);
+    } catch (e) {}
+    try {
+      const dash = await api('/students/dashboard');
+      if (dash) mfxCacheSet_('dashboard', dash);
+    } catch (e) {}
+  }, 1200);
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   const path = location.pathname;
   if (path.includes('login.html')) {
@@ -1335,6 +1827,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (path.includes('video.html')) withPageLoader(loadVideoPage);
   if (path.includes('presentation.html')) withPageLoader(loadPresentationPage);
   if (path.includes('chat.html')) withPageLoader(loadChatPage);
+
+  // Quietly warm the cache for the pages a student is most likely to
+  // open next, on every authenticated page — not just login — so
+  // navigating around the site keeps feeling fast the whole session,
+  // not just right after logging in.
+  prefetchLikelyNextPages_();
 });
 
 // When the browser restores a page from its back/forward cache (e.g. the
