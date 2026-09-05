@@ -12,67 +12,10 @@ function toast(msg) {
   setTimeout(() => { t.classList.remove('on'); setTimeout(() => t.remove(), 400); }, 3000);
 }
 
-// ===== Global click rate-limiter =====
-// Blocks a SECOND click on the same button/link WHILE its first click's
-// own action is still actually running — site-wide, for every page.
-// This is separate from — and a backstop for — withButtonLock below:
-// that only protects the specific actions someone remembered to wrap
-// (with a visible spinner too). This catches everything else (plain
-// onclick="..." handlers: publish/hide/delete buttons, pagination, tabs)
-// without having to touch every single one of them individually. It does
-// NOT affect the exam's answer-option clicks (pickOpt/toggleMultiOpt) —
-// those go through their own delegated listener on <label class="opt">
-// elements, which this selector doesn't match, so answering stays instant.
-//
-// How it works: a single listener on document, in the CAPTURE phase (so
-// it runs before the target element's own onclick), marks the clicked
-// element "busy" and lets the click through as normal. A SECOND click on
-// that SAME element while it's still busy is stopped before it ever
-// reaches the element's own handler. What clears "busy" is not a guessed
-// fixed delay — it's mfxActiveApiCalls (see api() above): if the click
-// triggered a network request, the button stays locked for exactly as
-// long as that request takes, then unlocks the instant it settles — a
-// slow save stays protected the whole time it's slow, a fast one
-// unlocks right away. If the click never touched the network at all (a
-// pure UI toggle like a tab or accordion), it unlocks almost
-// immediately instead of also being held for the network case's longer
-// window. A 15s safety cap prevents a button from ever being stuck
-// locked forever if something genuinely never resolves. Clicking a
-// DIFFERENT button right after is unaffected either way, since "busy" is
-// tracked per-element, not globally.
-document.addEventListener('click', function (e) {
-  const el = e.target.closest('button, .btn, [onclick]');
-  if (!el) return;
-  if (el.dataset.mfxBusy === '1') {
-    e.stopPropagation();
-    e.preventDefault();
-    return;
-  }
-  el.dataset.mfxBusy = '1';
-  const before = mfxActiveApiCalls;
-  setTimeout(() => {
-    if (mfxActiveApiCalls > before) {
-      const check = setInterval(() => {
-        if (mfxActiveApiCalls <= before) {
-          clearInterval(check);
-          delete el.dataset.mfxBusy;
-        }
-      }, 100);
-      setTimeout(() => { clearInterval(check); delete el.dataset.mfxBusy; }, 15000);
-    } else {
-      delete el.dataset.mfxBusy;
-    }
-  }, 50);
-}, true);
-
 // ===== Global loading / anti-duplicate-click helpers =====
-// Every important action (login, start exam, save, submit) routes through
-// withButtonLock so a double-click / double-tap can only ever fire ONE
-// request: the button is disabled + shows a spinner immediately, and any
-// extra clicks while it's busy are ignored until the request settles.
 const activeLocks = new Set();
 async function withButtonLock(btn, busyText, fn) {
-  if (!btn || btn.dataset.locked === '1') return; // already running — ignore the extra click
+  if (!btn || btn.dataset.locked === '1') return;
   const original = btn.innerHTML;
   btn.dataset.locked = '1';
   btn.disabled = true;
@@ -88,15 +31,11 @@ async function withButtonLock(btn, busyText, fn) {
   }
 }
 
-// Full-page loader: shown the instant a data page starts loading (so the
-// student sees a spinning circle instead of a blank page while the first
-// Sheets read comes back), removed as soon as that page's load function
-// finishes — success or failure, it's always removed via .finally().
 function showPageLoader() {
   if (document.querySelector('.mfx-page-loader')) return;
   const el = document.createElement('div');
   el.className = 'mfx-page-loader';
-  el.innerHTML = '<div class="mfx-page-loader-content"><div class="loader-cube-wrap"><div class="loader-cube"><div class="face face-front"></div><div class="face face-back"></div><div class="face face-right"></div><div class="face face-left"></div><div class="face face-top"></div><div class="face face-bottom"></div></div></div><div class="mfx-page-loader-credit">صنع بواسطة يوسف ماهر</div></div>';
+  el.innerHTML = '<div class="mfx-page-loader-content"><div class="mfx-page-loader-ring"></div><div class="mfx-page-loader-credit">صنع بواسطة يوسف ماهر</div></div>';
   document.body.appendChild(el);
 }
 function hidePageLoader() {
@@ -114,138 +53,73 @@ async function withPageLoader(fn) {
   }
 }
 
-// Mobile nav menu — .nav-links used to just disappear on small screens
-// (display:none) with no way back to it, which made "لوحتي" / "المتصدرين"
-// / "المعلم" unreachable from a phone. Now it's a dropdown toggled by the
-// hamburger button added next to the logo; the CSS handles the actual
-// show/hide via the "mfx-open" class, this just flips it.
-function toggleMfxNav() {
-  document.querySelector('.nav-links')?.classList.toggle('mfx-open');
-}
-
 function getToken() { return localStorage.getItem('mfx_student_token'); }
 function setToken(t) { localStorage.setItem('mfx_student_token', t); }
 function getUser() { try { return JSON.parse(localStorage.getItem('mfx_student_user') || '{}'); } catch(e) { return {}; } }
-function getRefreshToken() { return localStorage.getItem('mfx_student_refresh_token'); }
-function setRefreshToken(t) { localStorage.setItem('mfx_student_refresh_token', t); }
-function logout() {
-  localStorage.removeItem('mfx_student_token');
-  localStorage.removeItem('mfx_student_refresh_token');
-  localStorage.removeItem('mfx_student_user');
-  location.href = 'login.html';
-}
+function logout() { localStorage.removeItem('mfx_student_token'); localStorage.removeItem('mfx_student_user'); location.href = 'login.html'; }
 
-// Reads the JWT's own expiry (exp claim) without a network call, so an
-// expired session is caught the instant the page loads instead of only
-// after some data request fails with 401. A 5-minute clock-skew grace
-// window absorbs a device with a slightly fast clock — otherwise a
-// freshly-issued, perfectly valid token could look "already expired".
 function isTokenExpired(token) {
   try {
     const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
     if (!payload.exp) return false;
-    const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000;
-    return Date.now() >= (payload.exp * 1000 + CLOCK_SKEW_TOLERANCE_MS);
+    return Date.now() >= payload.exp * 1000;
   } catch (e) {
-    return true; // unreadable token = treat as expired
+    return true;
   }
 }
 
-// Silently exchanges the stored refresh token (30-day lifetime, issued at
-// login — see routes/auth.js POST /auth/refresh) for a brand-new access
-// token (15-minute lifetime). Without this, a student staying on one page
-// for more than 15 minutes (watching a video, reading a lesson) got
-// bounced back to login even though a perfectly valid 30-day refresh
-// token was sitting unused. Concurrent callers share the same in-flight
-// request instead of each firing their own refresh.
-let refreshInFlight = null;
-async function refreshAccessToken() {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) return false;
-  if (refreshInFlight) return refreshInFlight;
-
-  refreshInFlight = (async () => {
-    try {
-      const res = await fetch(API + '/auth/refresh', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken })
-      });
-      if (!res.ok) return false;
-      const data = await res.json();
-      if (!data || !data.ok || !data.data || !data.data.accessToken) return false;
-      setToken(data.data.accessToken);
-      return true;
-    } catch (e) {
-      return false;
-    }
-  })();
-
-  try {
-    return await refreshInFlight;
-  } finally {
-    refreshInFlight = null;
-  }
-}
-
-// Tracks how many api() calls are currently in flight — used by the
-// click rate-limiter below to know exactly when a button's own action
-// has actually finished, instead of guessing with a fixed timer.
-let mfxActiveApiCalls = 0;
-
+// api() now accepts an optional timeoutMs. When set, the request is
+// aborted after that many milliseconds and api() throws a clearly-marked
+// timeout error instead of leaving the caller's spinner running forever.
+// Default stays generous (15s) for normal pages; login passes a tight 4s
+// on top of this (see handleLogin below).
 async function api(path, opts = {}) {
   const url = API + path;
-  const doFetch = async () => {
-    const headers = { 'Content-Type': 'application/json' };
-    const token = getToken();
-    if (token) headers['Authorization'] = 'Bearer ' + token;
-    return fetch(url, { ...opts, headers: { ...headers, ...opts.headers } });
-  };
-  mfxActiveApiCalls++;
-  try {
-    let res = await doFetch();
-    // A 401 mid-session (the token expired while the student was
-    // actively using the page) used to log them out immediately. Now:
-    // try ONE silent refresh + retry first, and only fall back to
-    // logout if the refresh itself fails.
-    if (res.status === 401) {
-      const refreshed = await refreshAccessToken();
-      if (!refreshed) { logout(); return; }
-      res = await doFetch();
-      if (res.status === 401) { logout(); return; }
-    }
-    return await res.json();
-  } catch (e) { toast('❌ خطأ في الاتصال'); throw e; }
-  finally { mfxActiveApiCalls--; }
-}
-
-// Auth check — runs on every page load. Instead of logging the student
-// out the instant the access token's 15-minute exp has passed, try a
-// silent refresh first and only send them to login if that refresh also
-// fails. Returns true/false so the init flow below can wait for it
-// before loading any page data.
-async function requireAuth() {
-  const onLoginPage = location.pathname.includes('login.html');
-  if (onLoginPage) return true;
-
+  const headers = { 'Content-Type': 'application/json' };
   const token = getToken();
-  if (!token) {
-    logout();
-    return false;
-  }
-
-  if (isTokenExpired(token)) {
-    const refreshed = await refreshAccessToken();
-    if (!refreshed) {
-      logout();
-      return false;
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const timeoutMs = opts.timeoutMs || 15000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...opts, headers: { ...headers, ...opts.headers }, signal: controller.signal });
+    if (res.status === 401) { logout(); return; }
+    return await res.json();
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      const timeoutErr = new Error('TIMEOUT');
+      timeoutErr.isTimeout = true;
+      throw timeoutErr;
     }
+    toast('❌ خطأ في الاتصال');
+    throw e;
+  } finally {
+    clearTimeout(timer);
   }
-
-  return true;
 }
 
-// Login مع timeout وretry logic
+// Auth check
+function requireAuth() {
+  const onLoginPage = location.pathname.includes('login.html');
+  const token = getToken();
+  if (onLoginPage) return;
+  if (!token || isTokenExpired(token)) {
+    logout();
+  }
+}
+
+// Login
+// The request now has a hard 10-second ceiling. Before this, if the
+// server was slow to answer (busy, cold-starting, whatever) the button
+// just sat there spinning indefinitely with no feedback — that "frozen"
+// feeling was the actual complaint. Now: at 10 seconds with no answer,
+// the request is cancelled, the button re-enables, and the student sees
+// a clear "try again" message instead of a screen that looks stuck.
+// NOTE: this makes login FAIL FAST when the server is slow, it doesn't
+// make the server itself faster — if the backend genuinely needs more
+// than 10s under heavy load, this will show "حاول تاني" more often
+// rather than eventually succeeding. That trade-off (fast clear failure
+// vs. a silent freeze) is what was asked for here.
 async function handleLogin(e) {
   e.preventDefault();
   const form = document.getElementById('login-form');
@@ -258,155 +132,65 @@ async function handleLogin(e) {
 
   await withButtonLock(btn, 'جاري تسجيل الدخول...', async () => {
     if (form) form.querySelectorAll('input').forEach((i) => i.disabled = true);
-    
-    const loginWithTimeout = async (attempt = 1) => {
-      const maxAttempts = 3;
-      const timeout = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Timeout')), 8000) // 8 ثواني timeout
-      );
-      
-      try {
-        const loginPromise = api('/auth/student-login', {
-          method: 'POST',
-          body: JSON.stringify({ code, name, phone, guardianPhone })
-        });
-        
-        const data = await Promise.race([loginPromise, timeout]);
-        
-        if (data && data.token) {
-          setToken(data.token);
-          if (data.refreshToken) setRefreshToken(data.refreshToken);
-          localStorage.setItem('mfx_student_user', JSON.stringify(data.user));
-          toast('✅ تم تسجيل الدخول');
-          location.href = 'index.html';
-          return true;
-        } else {
-          toast('❌ ' + ((data && data.error) || 'كود أو اسم غير صحيح'));
-          if (form) form.querySelectorAll('input').forEach((i) => i.disabled = false);
-          return false;
-        }
-      } catch (err) {
-        if (attempt < maxAttempts) {
-          console.log(`Login attempt ${attempt} failed, retrying... (${maxAttempts - attempt} retries left)`);
-          await new Promise(r => setTimeout(r, 1000)); // انتظر ثانية قبل المحاولة التالية
-          return loginWithTimeout(attempt + 1);
-        } else {
-          toast('❌ فشل تسجيل الدخول. تحقق من البيانات والاتصال ثم حاول مجدداً');
-          if (form) form.querySelectorAll('input').forEach((i) => i.disabled = false);
-          return false;
-        }
+    try {
+      const data = await api('/auth/student-login', {
+        method: 'POST',
+        body: JSON.stringify({ code, name, phone, guardianPhone }),
+        timeoutMs: 10000
+      });
+      if (data && data.token) {
+        setToken(data.token);
+        localStorage.setItem('mfx_student_user', JSON.stringify(data.user));
+        toast('✅ تم تسجيل الدخول');
+        location.href = 'index.html';
+      } else {
+        toast('❌ ' + ((data && data.error) || 'كود أو اسم غير صحيح'));
+        if (form) form.querySelectorAll('input').forEach((i) => i.disabled = false);
       }
-    };
-    
-    await loginWithTimeout();
+    } catch (err) {
+      if (err && err.isTimeout) {
+        toast('⏳ السيرفر بطيء دلوقتي — جرّب تاني كمان شوية');
+      }
+      if (form) form.querySelectorAll('input').forEach((i) => i.disabled = false);
+    }
   });
 }
 
-// Load my courses مع retry logic ومعالجة أفضل للأخطاء
+// Load my courses
 async function loadMyCourses() {
-  const grid = document.getElementById('my-courses');
-  if (!grid) return;
-
-  const fetchMyCourses = async (attempt = 1) => {
-    const maxAttempts = 3;
-    try {
-      const data = await api('/students/my-courses');
-      if (!data || !data.courses) {
-        if (attempt < maxAttempts) {
-          await new Promise(r => setTimeout(r, 500));
-          return fetchMyCourses(attempt + 1);
-        }
-        return null;
-      }
-      return data;
-    } catch (e) {
-      if (attempt < maxAttempts) {
-        console.warn(`Fetch courses attempt ${attempt} failed, retrying...`);
-        await new Promise(r => setTimeout(r, 500));
-        return fetchMyCourses(attempt + 1);
-      }
-      throw e;
-    }
-  };
-
-  // Instant path: إذا كانت البيانات موجودة في الكاش
-  const cached = mfxCacheGet_('my-courses');
-  if (cached) {
-    renderMyCourses_(cached);
-    fetchMyCourses().then((fresh) => {
-      if (fresh) { mfxCacheSet_('my-courses', fresh); renderMyCourses_(fresh); }
-    }).catch((e) => { console.warn('Background fetch failed:', e); });
-    startPeriodicRefresh_('my-courses', fetchMyCourses, renderMyCourses_);
-    return;
-  }
-
-  try {
-    const data = await fetchMyCourses();
-    if (data) {
-      mfxCacheSet_('my-courses', data);
-      renderMyCourses_(data);
-    } else {
-      showDataError_(grid, 'courses-empty', 'فشل تحميل الكورسات. يرجى تحديث الصفحة.');
-    }
-    startPeriodicRefresh_('my-courses', fetchMyCourses, renderMyCourses_);
-  } catch (e) {
-    showDataError_(grid, 'courses-empty', 'فشل تحميل الكورسات. يرجى تحديث الصفحة.');
-  }
-}
-
-// دالة مساعدة لعرض رسالة خطأ مع زر إعادة تحميل
-function showDataError_(container, emptyElementId, message) {
-  container.innerHTML = '';
-  const empty = document.getElementById(emptyElementId);
-  if (empty) {
-    empty.style.display = 'block';
-    // أضف رسالة خطأ إن لم تكن موجودة
-    if (!empty.querySelector('.error-message')) {
-      const errorDiv = document.createElement('div');
-      errorDiv.className = 'error-message';
-      errorDiv.style.cssText = 'text-align:center;padding:20px;color:#e74c3c;font-size:14px;';
-      errorDiv.innerHTML = `<p>${message}</p><button onclick="location.reload()" style="margin-top:10px;padding:8px 16px;background:#e74c3c;color:white;border:none;border-radius:4px;cursor:pointer;">إعادة تحميل</button>`;
-      empty.appendChild(errorDiv);
-    }
-  }
-}
-
-function renderMyCourses_(data) {
   const grid = document.getElementById('my-courses');
   const empty = document.getElementById('courses-empty');
   if (!grid) return;
-  grid.innerHTML = '';
-  if (!data || !data.courses || !data.courses.length) {
-    if (empty) {
-      empty.style.display = 'block';
-      // امسح أي رسالة خطأ سابقة
-      const errorMsg = empty.querySelector('.error-message');
-      if (errorMsg) errorMsg.remove();
+  try {
+    const data = await api('/students/my-courses');
+    grid.innerHTML = '';
+    if (!data.courses || !data.courses.length) {
+      if (empty) empty.style.display = 'block';
+      return;
     }
-    return;
-  }
-  if (empty) empty.style.display = 'none';
-  data.courses.forEach(c => {
-    const div = document.createElement('div');
-    div.className = 'card';
-    div.innerHTML = `
-      <div class="card-img">${c.icon || '📚'}</div>
-      <div class="card-body">
-        <span class="card-tag">${c.tag || 'كورس'}</span>
-        <h3>${escapeHtml(c.title)}</h3>
-        <p>${escapeHtml(c.description || '')}</p>
-        <div style="margin:12px 0;">
-          <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:0.85rem;">
-            <span style="color:var(--text-secondary);">التقدم</span>
-            <span style="color:var(--accent-light); font-weight:600;">${c.progress || 0}%</span>
+    if (empty) empty.style.display = 'none';
+    data.courses.forEach(c => {
+      const div = document.createElement('div');
+      div.className = 'card';
+      div.innerHTML = `
+        <div class="card-img">${c.icon || '📚'}</div>
+        <div class="card-body">
+          <span class="card-tag">${c.tag || 'كورس'}</span>
+          <h3>${escapeHtml(c.title)}</h3>
+          <p>${escapeHtml(c.description || '')}</p>
+          <div style="margin:12px 0;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:0.85rem;">
+              <span style="color:var(--text-secondary);">التقدم</span>
+              <span style="color:var(--accent-light); font-weight:600;">${c.progress || 0}%</span>
+            </div>
+            <div class="prog"><div class="prog-fill" style="width:${c.progress || 0}%"></div></div>
           </div>
-          <div class="prog"><div class="prog-fill" style="width:${c.progress || 0}%"></div></div>
+          <a href="course.html?id=${c.id}" class="btn btn-primary" style="width:100%;">متابعة الكورس</a>
         </div>
-        <a href="course.html?id=${c.id}" class="btn btn-primary" style="width:100%;">متابعة الكورس</a>
-      </div>
-    `;
-    grid.appendChild(div);
-  });
+      `;
+      grid.appendChild(div);
+    });
+  } catch (e) { grid.innerHTML = ''; if (empty) empty.style.display = 'block'; }
 }
 
 // Load course detail
@@ -414,49 +198,27 @@ async function loadCourse() {
   const params = new URLSearchParams(location.search);
   const id = params.get('id');
   if (!id) { toast('❌ كورس غير موجود'); return; }
-  const cacheKey = 'course-' + id;
-
-  // loadCourseExams renders the exams list itself as a side effect (it's
-  // not just a data fetch) and has its own loading state, so it always
-  // runs live — only the units/title/description data below goes
-  // through the cache.
-  loadCourseExams(id);
-
-  const fetchCourse = () => api('/units?courseId=' + id);
-
-  const cached = mfxCacheGet_(cacheKey);
-  if (cached) {
-    renderCourse_(cached);
-    startPeriodicRefresh_(cacheKey, fetchCourse, renderCourse_);
-    return;
-  }
-
   try {
-    const c = await fetchCourse();
-    mfxCacheSet_(cacheKey, c);
-    renderCourse_(c);
-    startPeriodicRefresh_(cacheKey, fetchCourse, renderCourse_);
+    const [c] = await Promise.all([
+      api('/units?courseId=' + id),
+      loadCourseExams(id)
+    ]);
+    document.getElementById('course-title').textContent = c.title || 'كورس';
+    document.getElementById('course-desc').textContent = c.description || '';
+    document.getElementById('course-meta').innerHTML = `
+      <span>📚 ${c.units || 0} وحدة</span>
+      <span>🎥 ${c.videos || 0} فيديو</span>
+      <span>📝 ${c.exams || 0} امتحان</span>
+    `;
+    document.getElementById('course-badges').innerHTML = `
+      ${c.popular ? '<span class="badge badge-warn">🔥 شائع</span>' : ''}
+      <span class="badge badge-ok">✓ مسجل</span>
+    `;
+    renderUnits(c.units || []);
+    renderVocabList_(c.vocabulary || []);
   } catch (e) { toast('❌ فشل تحميل الكورس'); }
 }
 
-function renderCourse_(c) {
-  document.getElementById('course-title').textContent = c.title || 'كورس';
-  document.getElementById('course-desc').textContent = c.description || '';
-  document.getElementById('course-meta').innerHTML = `
-    <span>📚 ${c.units || 0} وحدة</span>
-    <span>🎥 ${c.videos || 0} فيديو</span>
-    <span>📝 ${c.exams || 0} امتحان</span>
-  `;
-  document.getElementById('course-badges').innerHTML = `
-    ${c.popular ? '<span class="badge badge-warn">🔥 شائع</span>' : ''}
-    <span class="badge badge-ok">✓ مسجل</span>
-  `;
-  renderUnits(c.units || []);
-  renderVocabList_(c.vocabulary || []);
-}
-
-// Course vocabulary — AI-read words/phrases (Web Speech API, no audio
-// files). Same idea as the Listening-question player on the exam page.
 function speakText_(text, lang, rate, onEnd) {
   if (!text) return;
   if (!('speechSynthesis' in window)) { toast('❌ متصفحك مش بيدعم النطق الصوتي'); return; }
@@ -500,15 +262,6 @@ function renderVocabList_(words) {
   `).join('');
 }
 
-// Found a real bug: the play button used to build its onclick as
-// `playVocabWord_(0, ${JSON.stringify(w.text)}, ...)` — JSON.stringify
-// always wraps a string in DOUBLE quotes, and that was sitting inside an
-// HTML onclick="..." attribute which is ALSO double-quoted. That breaks
-// the attribute for literally every word, not just ones with special
-// characters — the button never worked at all. Fixed by only ever
-// passing a plain integer index through the attribute and looking the
-// actual word up from currentCourseVocab (the real data), never
-// round-tripping arbitrary text through generated HTML/JS.
 function playVocabWord_(i) {
   const word = currentCourseVocab[i];
   if (!word) return;
@@ -583,33 +336,10 @@ async function loadCourseExams(courseId) {
   const list = document.getElementById('exams-list');
   const empty = document.getElementById('exams-empty');
   if (!list) return;
-  
-  const fetchExams = async (attempt = 1) => {
-    const maxAttempts = 3;
-    try {
-      const data = await api('/exams?courseId=' + courseId);
-      if (!data) {
-        if (attempt < maxAttempts) {
-          await new Promise(r => setTimeout(r, 500));
-          return fetchExams(attempt + 1);
-        }
-        return null;
-      }
-      return data;
-    } catch (e) {
-      if (attempt < maxAttempts) {
-        console.warn(`Fetch exams attempt ${attempt} failed, retrying...`);
-        await new Promise(r => setTimeout(r, 500));
-        return fetchExams(attempt + 1);
-      }
-      throw e;
-    }
-  };
-  
   try {
-    const data = await fetchExams();
+    const data = await api('/exams?courseId=' + courseId);
     list.innerHTML = '';
-    const exams = data && data.exams ? data.exams : [];
+    const exams = data.exams || [];
     if (!exams.length) { if (empty) empty.style.display = 'block'; return; }
     if (empty) empty.style.display = 'none';
     exams.forEach(ex => {
@@ -630,20 +360,11 @@ async function loadCourseExams(courseId) {
       `;
       list.appendChild(div);
     });
-  } catch (e) {
-    console.warn('Load exams failed:', e);
-    showDataError_(list, 'exams-empty', 'فشل تحميل الامتحانات. يرجى تحديث الصفحة.');
-  }
+  } catch (e) { list.innerHTML = ''; if (empty) empty.style.display = 'block'; }
 }
 
-// Exam
-// examState.attemptId / expiresAt come from the server (POST /attempts/start)
-// — the server's clock is the only source of truth for when time is up.
-// examState.answers is mirrored into localStorage on every change so a
-// refresh (or the browser dying) never loses an answer that hasn't made it
-// to the server yet.
 let examState = { examId: null, attemptId: null, questions: [], current: 0, answers: {}, expiresAt: null };
-let dirtyAnswerKeys = new Set(); // which question IDs changed since the last autosave
+let dirtyAnswerKeys = new Set();
 
 function answersStorageKey_() { return 'mfx_exam_answers_' + examState.attemptId; }
 function saveAnswersLocally_() {
@@ -667,11 +388,6 @@ async function loadExam() {
   examState.examId = id;
   setExamLoading_(true, 'جاري تحميل الامتحان...');
   try {
-    // ONE request: /attempts/start returns the attempt AND the exam's
-    // metadata + questions together (previously this was two separate
-    // requests — start, then a second GET /exams/:id). Idempotent and
-    // deduped server-side, so a double-tap or a page reload never creates
-    // a second attempt.
     const startRes = await api('/attempts/start', { method: 'POST', body: JSON.stringify({ examId: id }) });
     if (!startRes || !startRes.ok) {
       const container = document.getElementById('questions-container');
@@ -685,9 +401,6 @@ async function loadExam() {
     const data = attempt.exam ? { ...attempt.exam, questions: attempt.questions } : {};
     examState.questions = data.questions || [];
 
-    // Resume any answers already saved on the server for this attempt,
-    // then let localStorage fill in anything saved locally that a slow
-    // network hadn't autosaved yet (local always wins — it's newer).
     const serverAnswers = safeParseAnswers_(attempt.answers);
     const localAnswers = loadAnswersLocally_();
     examState.answers = { ...serverAnswers, ...localAnswers };
@@ -738,19 +451,6 @@ function renderExam() {
   `).join('');
   updateProg();
 
-  // Answer clicks are handled by ONE delegated listener instead of an
-  // inline onclick per option. Found during a review: the old inline
-  // onclick embedded the option's raw TEXT straight into the HTML
-  // attribute (`onclick="pickOpt('id', ${JSON.stringify(opt)})"`) — if an
-  // option ever contained a double-quote character (e.g. an English
-  // question quoting a phrase, or a possessive like "student's"), the
-  // browser's HTML parser would read that quote as the END of the
-  // onclick attribute and silently truncate/break the handler. That
-  // option would then just... not respond to clicks. Delegation reads
-  // the option's value from examState.questions (the actual data),
-  // never from re-parsed HTML/JS-in-an-attribute, so no amount of
-  // punctuation in the question text can break it. Attached once, on
-  // the container that's never itself replaced (only its children are).
   if (!container.dataset.delegated) {
     container.dataset.delegated = '1';
     container.addEventListener('click', (e) => {
@@ -772,12 +472,6 @@ function renderExam() {
   }
 }
 
-// Listening questions play one of two ways:
-//  - ttsText: the browser's own AI voice reads it aloud (Web Speech API) —
-//    no audio file, no upload, no hosting, works the instant it's typed.
-//  - audioUrl: the older file-upload path, kept for exams already using it.
-// Nothing plays automatically and nothing is fetched until the student
-// actually presses play — this never blocks or slows down opening the exam.
 function renderListeningPlayer_(q) {
   if (q.ttsText) {
     const rate = parseFloat(q.ttsRate) || 1;
@@ -834,15 +528,9 @@ function renderQuestionInput(q) {
   if (q.type === 'fillblank') {
     return `<input type="text" class="inp" value="${escapeAttr_(current || '')}" oninput="setTextAnswer('${q.id}', this.value)" placeholder="اكتب إجابتك">`;
   }
-  // essay
   return `<textarea class="inp" rows="4" oninput="setTextAnswer('${q.id}', this.value)" placeholder="اكتب إجابتك">${escapeHtml(current || '')}</textarea>`;
 }
 
-// Selecting an option updates just that question's option list in place
-// (not the whole exam) — this is what stops a <audio> listening player
-// from being torn down and restarted every time an answer is picked, and
-// avoids re-rendering all N questions for a single click. The click
-// itself is handled by the delegated listener set up once in renderExam().
 function updateAnswer_(qId, value) {
   examState.answers[qId] = value;
   dirtyAnswerKeys.add(qId);
@@ -877,9 +565,6 @@ function renderQNav() {
   nav.innerHTML = examState.questions.map((q, i) => {
     const answered = isAnswered_(examState.answers[q.id]);
     const isCurrent = i === examState.current;
-    // Clear at a glance: filled = answered, outlined = still empty,
-    // glowing ring = the one you're on right now — so a student can jump
-    // straight to what's left instead of paging through everything again.
     let cls = 'q-nav-pill';
     if (isCurrent) cls += ' current';
     if (answered) cls += ' answered';
@@ -898,8 +583,6 @@ function renderQNav() {
 }
 
 function goQ(n) {
-  // Stop any TTS still speaking the previous question — otherwise it
-  // keeps talking over the next question the student's now looking at.
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   examState.current = n;
   document.querySelectorAll('.q-card').forEach((c, i) => c.style.display = i === n ? 'block' : 'none');
@@ -915,20 +598,13 @@ function updateProg() {
   const txt = document.getElementById('progress-text');
   if (fill) fill.style.width = total ? (ans / total * 100) + '%' : '0%';
   if (txt) txt.textContent = ans + ' / ' + total;
-  renderQNav(); // keep the navigator's answered/unanswered pills in sync
+  renderQNav();
 }
 
-// ===== Autosave =====
-// Batches every answer changed since the last save into ONE request,
-// on a fixed interval — never one request per click. Skips the request
-// entirely if nothing changed since the last tick.
 let autosaveInt;
 function startAutosaveLoop() {
   clearInterval(autosaveInt);
   autosaveInt = setInterval(runAutosave, 10000);
-  // Defensive: remove before re-adding, so if this is ever called more
-  // than once in one page life (it isn't today, but nothing enforces
-  // that), the browser doesn't end up firing autosave twice on unload.
   window.removeEventListener('beforeunload', runAutosave);
   window.addEventListener('beforeunload', runAutosave);
 }
@@ -947,18 +623,11 @@ async function runAutosave() {
     });
     if (status) status.textContent = (res && res.ok) ? '✓ تم الحفظ' : '';
   } catch (e) {
-    // Failed silently — the keys are still in examState/localStorage,
-    // so re-add them to be retried on the next tick instead of losing them.
     keysToSave.forEach((k) => dirtyAnswerKeys.add(k));
     if (status) status.textContent = '';
   }
 }
 
-// ===== Server-anchored countdown =====
-// The countdown always recomputes from examState.expiresAt (a server
-// timestamp), never from a locally-ticked "minutes left" counter — so a
-// slow tab, a laptop sleeping, or clock drift can't desync the timer from
-// what the server will actually enforce.
 let timerInt;
 function startTimer() {
   clearInterval(timerInt);
@@ -969,9 +638,6 @@ function startTimer() {
     const s = (sec % 60).toString().padStart(2, '0');
     if (el) {
       el.textContent = m + ':' + s;
-      // Clear visual urgency in the last minute — color alone (not a
-      // popup, not a sound) so it doesn't interrupt whatever the student
-      // is doing, but it's impossible to miss.
       el.classList.toggle('timer-low', sec <= 60 && sec > 0);
     }
     if (sec <= 0) { clearInterval(timerInt); confirmSubmit(); }
@@ -991,79 +657,35 @@ function submitExam() {
 
 function closeModal() { document.getElementById('submit-modal').style.display = 'none'; }
 
-// Submit now returns immediately (202 PROCESSING) — the actual Sheets
-// write happens in a batch on the server. We show the "received" state
-// right away, then poll /:id/status with growing intervals (2s, 4s, 8s,
-// then staying at 8s) until it settles, instead of holding one long HTTP
-// connection open or hammering the server every second.
 async function confirmSubmit() {
   closeModal();
   clearInterval(timerInt);
   clearInterval(autosaveInt);
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-
-  // Truly optimistic submit: the student sees "✓ تم استلام إجاباتك"
-  // INSTANTLY — no waiting on the network at all. This is safe because
-  // every answer is already autosaved to the server every 10s AND kept
-  // in localStorage on every change (see saveAnswersLocally_), so the
-  // final POST /submit call below is really just "finalize + start
-  // grading", not the only copy of the student's answers. It's sent
-  // right after, in the background, with automatic retries — the
-  // student is only ever bothered with an error if it still hasn't
-  // gone through after those retries.
-  showSubmissionReceived_();
-  submitExamInBackground_(examState.attemptId, examState.answers);
-}
-
-// keepalive:true asks the browser to let this specific request finish
-// even if the page is being unloaded right as it fires (e.g. the
-// student closes the tab the instant they see "تم") — the same
-// protection a normal awaited request wouldn't have gotten anyway, so
-// this is a pure improvement, not a new risk. (Fetch's keepalive has a
-// combined ~64KB request-body cap across in-flight keepalive requests;
-// a typical exam answer payload is well under that, so this is a safe
-// default rather than something that needs its own fallback path.)
-async function submitExamInBackground_(attemptId, answers, attemptNum = 1) {
-  const MAX_ATTEMPTS = 3;
-  try {
-    const data = await api('/attempts/' + attemptId + '/submit', {
-      method: 'POST',
-      keepalive: true,
-      body: JSON.stringify({ answers })
-    });
-    if (!data || !data.ok) throw new Error((data && data.error) || 'فشل تسليم الامتحان');
-
-    clearAnswersLocally_();
-    if (data.data && data.data.status === 'COMPLETED') {
-      // Already flushed (e.g. queue was empty and flushed instantly) —
-      // no need to poll at all.
-      showResult(data.data);
-      return;
-    }
-    pollSubmissionStatus_(attemptId);
-  } catch (e) {
-    if (attemptNum < MAX_ATTEMPTS) {
-      // Silent retry — the student already sees "تم", so a flaky
-      // connection resolving itself a couple seconds later should never
-      // need to interrupt them with anything.
-      setTimeout(() => submitExamInBackground_(attemptId, answers, attemptNum + 1), 1500 * attemptNum);
-    } else {
-      // Only now, after automatic retries are exhausted, does the
-      // student need to know — same recovery UI ("إعادة المحاولة") used
-      // elsewhere in this flow, so it's a familiar state, not a new one.
-      setResultModalState_({
-        icon: '⚠️',
-        title: 'حدث خطأ أثناء حفظ الامتحان',
-        score: '', rank: 'إجاباتك محفوظة محليًا ولم تُفقد — جرّب "إعادة المحاولة"', time: '',
-        showRetry: true
+  const confirmBtn = document.querySelector('#submit-modal .btn-primary');
+  toast('⏳ جاري تسليم الامتحان...');
+  await withButtonLock(confirmBtn, 'جاري التسليم...', async () => {
+    try {
+      const data = await api('/attempts/' + examState.attemptId + '/submit', {
+        method: 'POST',
+        body: JSON.stringify({ answers: examState.answers })
       });
-    }
-  }
+      if (!data || !data.ok) {
+        toast('❌ ' + ((data && data.error) || 'فشل تسليم الامتحان'));
+        return;
+      }
+      clearAnswersLocally_();
+      showSubmissionReceived_();
+
+      if (data.data && data.data.status === 'COMPLETED') {
+        showResult(data.data);
+        return;
+      }
+      pollSubmissionStatus_(examState.attemptId);
+    } catch (e) {}
+  });
 }
 
-// Step 1 of the two-step message from the spec: confirm receipt instantly,
-// independently of whether Sheets has actually been written to yet. Shows
-// a real animated spinner (not emoji) while the queue processes this.
 function showSubmissionReceived_() {
   const modal = document.getElementById('result-modal');
   if (!modal) return;
@@ -1091,18 +713,17 @@ function setResultModalState_({ icon, title, score, rank, time, showRetry }) {
   if (retryBtn) retryBtn.style.display = showRetry ? 'block' : 'none';
 }
 
-// Manual retry after a terminal FAILED status — the queue already retried
-// automatically server-side (see submissionQueue.js) before giving up, so
-// polling further wouldn't help; re-submitting starts a fresh attempt at
-// queueing (still idempotent — the attempt id is unchanged).
 async function retrySubmit_() {
   showSubmissionReceived_();
-  submitExamInBackground_(examState.attemptId, examState.answers);
+  pollSubmissionStatus_(examState.attemptId);
+  try {
+    await api('/attempts/' + examState.attemptId + '/submit', {
+      method: 'POST',
+      body: JSON.stringify({ answers: examState.answers })
+    });
+  } catch (e) {}
 }
 
-// Graduated polling: 2s, 4s, 8s, then holds at 8s. Stops immediately on
-// COMPLETED or FAILED — never polls once a second, never polls forever,
-// and never keeps polling once there's nothing left to wait for.
 function pollSubmissionStatus_(attemptId) {
   const delays = [2000, 4000, 8000];
   let step = 0;
@@ -1113,9 +734,7 @@ function pollSubmissionStatus_(attemptId) {
     let data;
     try {
       data = await api('/attempts/' + attemptId + '/status');
-    } catch (e) {
-      // Connection hiccup — just try again on the same backoff schedule.
-    }
+    } catch (e) {}
     const status = data && data.ok && data.data && data.data.status;
 
     if (status === 'COMPLETED') {
@@ -1148,8 +767,6 @@ function showResult(attempt) {
   modal.style.display = 'flex';
 
   if (!attempt || attempt.resultsPublished === false) {
-    // Results not published yet — never show a score/rank the student
-    // wasn't meant to see, even transiently.
     setResultModalState_({
       icon: '✅', title: 'تم تسليم الامتحان!',
       score: '', rank: 'تم تسليم الامتحان بنجاح.', time: 'سيتم إعلان النتيجة بعد اعتماد المعلم.',
@@ -1175,62 +792,13 @@ async function loadDashboard() {
   const user = getUser();
   document.getElementById('student-name').textContent = user.name || '—';
   document.getElementById('nav-name').textContent = user.name || '—';
-
-  const fetchDashboard = async (attempt = 1) => {
-    const maxAttempts = 3;
-    try {
-      const data = await api('/students/dashboard');
-      if (!data) {
-        if (attempt < maxAttempts) {
-          await new Promise(r => setTimeout(r, 500));
-          return fetchDashboard(attempt + 1);
-        }
-        return null;
-      }
-      return data;
-    } catch (e) {
-      if (attempt < maxAttempts) {
-        console.warn(`Fetch dashboard attempt ${attempt} failed, retrying...`);
-        await new Promise(r => setTimeout(r, 500));
-        return fetchDashboard(attempt + 1);
-      }
-      throw e;
-    }
-  };
-
-  // Same instant-from-cache, refresh-in-background pattern as
-  // loadMyCourses — see prefetchLikelyNextPages_() for where the cache
-  // gets warmed up ahead of time.
-  const cached = mfxCacheGet_('dashboard');
-  if (cached) {
-    renderDashboard_(cached);
-    fetchDashboard().then((fresh) => {
-      if (fresh) { mfxCacheSet_('dashboard', fresh); renderDashboard_(fresh); }
-    }).catch((e) => { console.warn('Background fetch dashboard failed:', e); });
-    startPeriodicRefresh_('dashboard', fetchDashboard, renderDashboard_);
-    return;
-  }
-
   try {
-    const data = await fetchDashboard();
-    if (data) {
-      mfxCacheSet_('dashboard', data);
-      renderDashboard_(data);
-    }
-    startPeriodicRefresh_('dashboard', fetchDashboard, renderDashboard_);
-  } catch (e) {
-    console.warn('Dashboard load failed:', e);
-  }
-}
-
-function renderDashboard_(data) {
-  try {
+    const data = await api('/students/dashboard');
     if (data.courses != null) document.getElementById('dash-courses').textContent = data.courses;
     if (data.exams != null) document.getElementById('dash-exams').textContent = data.exams;
     if (data.avgScore != null) document.getElementById('dash-score').textContent = data.avgScore + '%';
     if (data.rank != null) document.getElementById('dash-rank').textContent = '#' + data.rank;
 
-    // Progress
     const prog = document.getElementById('my-progress');
     const progEmpty = document.getElementById('progress-empty');
     if (prog) {
@@ -1262,7 +830,6 @@ function renderDashboard_(data) {
       }
     }
 
-    // Recent exams
     const recent = document.getElementById('recent-exams');
     const recentEmpty = document.getElementById('exams-empty');
     if (recent) {
@@ -1285,7 +852,6 @@ function renderDashboard_(data) {
       }
     }
 
-    // Leaderboard
     const lb = document.getElementById('leaderboard-list');
     const lbEmpty = document.getElementById('leaderboard-empty');
     if (lb) {
@@ -1316,18 +882,6 @@ function renderDashboard_(data) {
 let videoProgressTimer = null;
 let videoWatchState = { videoId: null, startedAt: 0, durationSeconds: 0, sentPercentage: 0 };
 
-// Pulls the file id out of any of Drive's common share-link shapes:
-//   .../file/d/FILEID/view?usp=sharing   .../open?id=FILEID   .../d/FILEID
-// Same helper the admin panel uses when a course link is pasted.
-function extractDriveFileId_(url) {
-  const patterns = [/\/d\/([a-zA-Z0-9_-]{10,})/, /[?&]id=([a-zA-Z0-9_-]{10,})/];
-  for (const re of patterns) {
-    const m = url.match(re);
-    if (m) return m[1];
-  }
-  return null;
-}
-
 async function loadVideoPage() {
   const params = new URLSearchParams(location.search);
   const id = params.get('id');
@@ -1339,21 +893,8 @@ async function loadVideoPage() {
     document.getElementById('video-title').textContent = video.title || 'فيديو';
     document.getElementById('back-to-course').href = 'course.html?id=' + video.unitId;
     const frame = document.getElementById('video-frame');
-    // BUG FIX (self-healing): videos added by pasting a normal Drive
-    // share link (.../view?usp=sharing) used to have that exact URL
-    // saved as driveUrl with no driveFileId — and a Drive /view URL
-    // refuses to load inside an <iframe> at all (shows a
-    // permission-style error) no matter how the file is actually
-    // shared; only the .../preview form embeds. Rather than requiring
-    // every already-saved video to be re-added from the admin panel,
-    // this pulls the file ID out of driveUrl on the fly whenever
-    // driveFileId wasn't stored, and always builds the correct
-    // embeddable /preview URL from it — fixing existing videos
-    // automatically, not just new ones.
-    const fallbackFileId = !video.driveFileId && video.driveUrl ? extractDriveFileId_(video.driveUrl) : null;
-    const resolvedFileId = video.driveFileId || fallbackFileId;
-    if (frame && resolvedFileId) {
-      frame.src = 'https://drive.google.com/file/d/' + resolvedFileId + '/preview';
+    if (frame && video.driveFileId) {
+      frame.src = 'https://drive.google.com/file/d/' + video.driveFileId + '/preview';
     } else if (frame && video.driveUrl) {
       frame.src = video.driveUrl;
     }
@@ -1375,7 +916,7 @@ async function sendVideoProgress() {
   const watchSeconds = Math.round((Date.now() - videoWatchState.startedAt) / 1000);
   const watchPercentage = videoWatchState.durationSeconds > 0
     ? Math.min(100, Math.round((watchSeconds / videoWatchState.durationSeconds) * 100))
-    : Math.min(95, Math.round(watchSeconds / 3)); // rough fallback if no duration is set
+    : Math.min(95, Math.round(watchSeconds / 3));
   if (watchPercentage <= videoWatchState.sentPercentage) return;
   videoWatchState.sentPercentage = watchPercentage;
   try {
@@ -1435,12 +976,6 @@ async function deleteComment(commentId, videoId) {
 }
 
 // ===== Presentation viewer =====
-// mode 'images': the new custom in-platform viewer (slide images + our
-// own buttons/counter/keyboard/fullscreen — no Google UI visible).
-// mode 'iframe': the old Google Slides/file embed, kept as a fallback
-// for any presentation that hasn't been converted to Slides yet.
-let slideViewerState = { images: [], current: 0, mode: 'iframe' };
-
 async function loadPresentationPage() {
   const params = new URLSearchParams(location.search);
   const id = params.get('id');
@@ -1451,132 +986,16 @@ async function loadPresentationPage() {
     if (!item) { toast('❌ الملف غير موجود'); return; }
     document.getElementById('presentation-title').textContent = item.title || 'عرض تقديمي';
     document.getElementById('back-to-course').href = 'course.html?id=' + item.unitId;
-
-    let slideImages = null;
-    if (item.slidesId) {
-      try {
-        const slidesRes = await api('/presentations/' + id + '/slides');
-        if (slidesRes && slidesRes.ok && slidesRes.data && slidesRes.data.slideImages && slidesRes.data.slideImages.length) {
-          slideImages = slidesRes.data.slideImages;
-        }
-      } catch (e) {
-        // getSlideImages failed (quota, Apps Script hiccup, etc.) — fall
-        // through to the iframe fallback below rather than leaving the
-        // student with a blank page.
-      }
-    }
-
-    if (slideImages) initSlideViewer_(slideImages);
-    else initIframeViewer_(item);
-
+    const frame = document.getElementById('presentation-frame');
+    const previewUrl = item.driveFileId
+      ? 'https://drive.google.com/file/d/' + item.driveFileId + '/preview'
+      : item.driveUrl;
+    if (frame) frame.src = previewUrl;
     renderPresentationWatermark();
     setupPresentationDeterrents();
   } catch (e) { toast('❌ فشل تحميل العرض التقديمي'); }
 }
 
-function initIframeViewer_(item) {
-  slideViewerState.mode = 'iframe';
-  const frame = document.getElementById('presentation-frame');
-  const img = document.getElementById('slide-image');
-  const controls = document.getElementById('slide-controls');
-  if (img) img.style.display = 'none';
-  if (controls) controls.style.display = 'none';
-  if (frame) {
-    frame.style.display = 'block';
-    // Trust the URL saved at upload/link time first — it's already the
-    // correct embeddable form (a Slides /embed URL for converted
-    // PowerPoint uploads, giving real next/previous slide arrows that
-    // work on both desktop and phone; or the right /preview form for a
-    // pasted link). Only fall back to rebuilding a generic file-preview
-    // URL from driveFileId if nothing better was stored.
-    const previewUrl = item.driveUrl
-      || (item.driveFileId ? 'https://drive.google.com/file/d/' + item.driveFileId + '/preview' : '');
-    frame.src = previewUrl;
-  }
-}
-
-function initSlideViewer_(slideImages) {
-  slideViewerState.mode = 'images';
-  slideViewerState.images = slideImages.slice().sort((a, b) => (a.order || 0) - (b.order || 0));
-  slideViewerState.current = 0;
-
-  const frame = document.getElementById('presentation-frame');
-  const img = document.getElementById('slide-image');
-  const controls = document.getElementById('slide-controls');
-  if (frame) { frame.style.display = 'none'; frame.src = ''; }
-  if (img) img.style.display = 'block';
-  if (controls) controls.style.display = 'flex';
-
-  renderCurrentSlide_();
-  setupSlideKeyboardNav_();
-}
-
-function renderCurrentSlide_() {
-  const img = document.getElementById('slide-image');
-  const counter = document.getElementById('slide-counter');
-  const prevBtn = document.getElementById('slide-prev-btn');
-  const nextBtn = document.getElementById('slide-next-btn');
-  const { images, current } = slideViewerState;
-  if (img) img.src = images[current].imageUrl;
-  if (counter) counter.textContent = `شريحة ${current + 1} من ${images.length}`;
-  if (prevBtn) prevBtn.disabled = current === 0;
-  if (nextBtn) nextBtn.disabled = current === images.length - 1;
-  // Warm the browser cache for the next/previous slide so paging feels
-  // instant instead of showing a blank frame while it fetches.
-  [current - 1, current + 1].forEach((i) => {
-    if (i >= 0 && i < images.length) { const pre = new Image(); pre.src = images[i].imageUrl; }
-  });
-}
-
-function nextSlide() {
-  if (slideViewerState.mode !== 'images') return;
-  if (slideViewerState.current < slideViewerState.images.length - 1) {
-    slideViewerState.current += 1;
-    renderCurrentSlide_();
-  }
-}
-function prevSlide() {
-  if (slideViewerState.mode !== 'images') return;
-  if (slideViewerState.current > 0) {
-    slideViewerState.current -= 1;
-    renderCurrentSlide_();
-  }
-}
-
-// Attached once via this flag since loadPresentationPage only runs once
-// per page load — guards against a future double-init adding the
-// listener twice.
-let slideKeyboardNavAttached_ = false;
-function setupSlideKeyboardNav_() {
-  if (slideKeyboardNavAttached_) return;
-  slideKeyboardNavAttached_ = true;
-  document.addEventListener('keydown', (e) => {
-    if (slideViewerState.mode !== 'images') return;
-    const tag = document.activeElement && document.activeElement.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-    // Right arrow = next, left = previous — matches PowerPoint's own
-    // default keys regardless of the page's RTL layout, so it behaves
-    // the way a student already expects from PowerPoint/Slides itself.
-    if (e.key === 'ArrowRight') { e.preventDefault(); nextSlide(); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); prevSlide(); }
-    else if (e.key === 'Escape' && document.fullscreenElement) { document.exitFullscreen(); }
-  });
-}
-
-function toggleSlideFullscreen() {
-  const wrap = document.getElementById('presentation-viewer');
-  if (!wrap) return;
-  if (!document.fullscreenElement) {
-    wrap.requestFullscreen?.().catch(() => toast('❌ تعذر فتح وضع ملء الشاشة'));
-  } else {
-    document.exitFullscreen();
-  }
-}
-
-// Tiles the student's name + code across the presentation area so any
-// screenshot or photo of the screen is traceable back to them. This is a
-// deterrent, not a real block — nothing on the web can stop someone from
-// literally photographing their own screen.
 function renderPresentationWatermark() {
   const layer = document.getElementById('presentation-watermark');
   if (!layer) return;
@@ -1591,10 +1010,6 @@ function renderPresentationWatermark() {
   layer.innerHTML = html;
 }
 
-// A handful of low-friction deterrents against the *casual* "right click,
-// save" or "select all, copy" path. None of this stops a determined
-// person with a phone camera or a screen recorder — that's simply not
-// something any website can prevent.
 function setupPresentationDeterrents() {
   const viewer = document.getElementById('presentation-viewer');
   if (!viewer) return;
@@ -1607,19 +1022,12 @@ function setupPresentationDeterrents() {
   const blurNow = () => { if (cover) cover.style.display = 'flex'; };
   const unblurNow = () => { if (cover) cover.style.display = 'none'; };
 
-  // Hide the content the moment the tab loses focus or is backgrounded —
-  // makes casual screen-recording apps (which usually need the tab
-  // visible/focused) capture a blurred cover instead of the real slides.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) blurNow(); else unblurNow();
   });
   window.addEventListener('blur', blurNow);
   window.addEventListener('focus', unblurNow);
 
-  // Block the most common keyboard shortcuts someone would reach for
-  // first (Print, Save, DevTools). Anyone who actually knows what
-  // they're doing can still get around this — it just raises the floor
-  // above "accidentally easy".
   document.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();
     const blocked =
@@ -1720,106 +1128,15 @@ function toggleAcc(header) {
 }
 
 // Init
-// ===== Cross-page cache (sessionStorage) =====
-// This is a traditional multi-page site — every navigation (index.html ->
-// course.html -> ...) is a full page reload, so a plain in-memory JS
-// variable wouldn't survive it. sessionStorage does (same tab, cleared
-// when the tab closes). Used so "كورساتي" / "لوحتي" can render INSTANTLY
-// from a cache that was quietly warmed up in the background a moment
-// earlier — either by an earlier visit to that same page, or by
-// prefetchLikelyNextPages_() below — instead of waiting on a fresh
-// Google Sheets round-trip every single time.
-const MFX_CACHE_TTL_MS = 30 * 60 * 1000; // 30 دقيقة بدل دقيقة واحدة
-function mfxCacheGet_(key) {
-  try {
-    const raw = sessionStorage.getItem('mfx_cache_' + key);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (Date.now() - parsed.at > MFX_CACHE_TTL_MS) return null;
-    // التحقق من أن البيانات ليست فارغة
-    const data = parsed.data;
-    if (!data || (data && typeof data === 'object' && Object.keys(data).length === 0)) return null;
-    return data;
-  } catch (e) {
-    console.warn('Cache read error:', e);
-    return null;
-  }
-}
-function mfxCacheSet_(key, data) {
-  if (!data || (data && typeof data === 'object' && Object.keys(data).length === 0)) {
-    // عدم حفظ بيانات فارغة
-    return false;
-  }
-  try {
-    sessionStorage.setItem('mfx_cache_' + key, JSON.stringify({ data, at: Date.now() }));
-    return true;
-  } catch (e) {
-    console.warn('Cache write error:', e);
-    // إذا sessionStorage معطّل (incognito mode مثلاً)، استمر بدونه
-    return false;
-  }
-}
-
-// Keeps a page's data "live" for as long as the student stays on it —
-// re-fetches every 3 minutes in the background, updates the cache, and
-// re-renders in place, so someone sitting on their dashboard or a course
-// page for a while sees it stay current on its own, the same way the
-// instant cached-render + one-off background revalidate already does for
-// the moment the page first opens. Silent on failure (a missed refresh
-// just tries again next cycle); torn down automatically when the page is
-// left, since navigating anywhere in this multi-page site is a full
-// reload that clears every JS timer with it — nothing to clean up by hand.
-const MFX_PERIODIC_REFRESH_MS = 3 * 60 * 1000;
-function startPeriodicRefresh_(key, fetchFn, renderFn) {
-  setInterval(async () => {
-    try {
-      const fresh = await fetchFn();
-      if (fresh) { mfxCacheSet_(key, fresh); renderFn(fresh); }
-    } catch (e) {}
-  }, MFX_PERIODIC_REFRESH_MS);
-}
-
-// Quietly re-fetches the pages a student is most likely to open NEXT
-// (their course list, their dashboard) in the background and caches the
-// result, so navigating there shortly after feels instant instead of
-// waiting on Sheets again. Deliberately starts a beat AFTER the current
-// page's own content is already on screen — never competes with it for
-// bandwidth/the Apps Script concurrency slots — and never shows anything
-// to the student on failure; a missed prefetch just means the next page
-// loads normally, exactly like it does today.
-function prefetchLikelyNextPages_() {
-  setTimeout(async () => {
-    try {
-      const courses = await api('/students/my-courses');
-      if (courses) mfxCacheSet_('my-courses', courses);
-    } catch (e) {}
-    try {
-      const dash = await api('/students/dashboard');
-      if (dash) mfxCacheSet_('dashboard', dash);
-    } catch (e) {}
-  }, 1200);
-}
-
-document.addEventListener('DOMContentLoaded', async () => {
+document.addEventListener('DOMContentLoaded', () => {
+  requireAuth();
   const path = location.pathname;
   if (path.includes('login.html')) {
-    // Login page never has a token to check — nothing to await.
-    requireAuth();
-    // Pre-fill the code when a student arrives via a QR-code deep link
-    // (login.html?code=XXXX) instead of typing it in by hand.
     const qrCode = new URLSearchParams(location.search).get('code');
     const codeInput = document.getElementById('login-code');
     if (qrCode && codeInput) codeInput.value = qrCode;
     return;
   }
-
-  // Every other page: wait for requireAuth() to finish (including its
-  // silent refresh attempt, if one was needed) before deciding whether to
-  // load page data — otherwise the FIRST api() call could race an
-  // in-flight refresh and 401 before the new token was saved.
-  const authed = await requireAuth();
-  if (!authed) return; // already redirected to login.html
-
   if (path.includes('index.html')) withPageLoader(loadMyCourses);
   if (path.includes('course.html')) withPageLoader(loadCourse);
   if (path.includes('exam.html')) withPageLoader(loadExam);
@@ -1827,20 +1144,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (path.includes('video.html')) withPageLoader(loadVideoPage);
   if (path.includes('presentation.html')) withPageLoader(loadPresentationPage);
   if (path.includes('chat.html')) withPageLoader(loadChatPage);
-
-  // Quietly warm the cache for the pages a student is most likely to
-  // open next, on every authenticated page — not just login — so
-  // navigating around the site keeps feeling fast the whole session,
-  // not just right after logging in.
-  prefetchLikelyNextPages_();
 });
 
-// When the browser restores a page from its back/forward cache (e.g. the
-// student hits the back button), it shows the old DOM as-is without
-// re-running any of the code above — including the login check. That's
-// what made an expired/logged-out session look like it was still showing
-// "the old page". Forcing a fresh load re-runs requireAuth() and re-fetches
-// real data instead.
 window.addEventListener('pageshow', (e) => {
   if (e.persisted) location.reload();
 });
