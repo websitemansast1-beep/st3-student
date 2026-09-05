@@ -4,7 +4,7 @@ const API = 'https://web-production-dcdc4.up.railway.app/api';
 function toast(msg) {
   let t = document.querySelector('.toast');
   if (t) t.remove();
-  t = document.createElement('div');
+  t = document.createElement('div');y
   t.className = 'toast';
   t.textContent = msg;
   document.body.appendChild(t);
@@ -157,15 +157,54 @@ async function handleLogin(e) {
 }
 
 // Load my courses
+// Runs the actual fetch once. Throws on any failure (timeout, network
+// error, bad response) instead of swallowing it — the caller below is
+// what decides how to react to a failure vs. a genuinely empty list.
+async function fetchMyCoursesOnce_() {
+  const data = await api('/students/my-courses', { timeoutMs: 8000 });
+  if (!data || data.ok === false) throw new Error((data && data.error) || 'bad response');
+  return data;
+}
+
+// Was: any failure here (a slow/failed request, most commonly right
+// after the forced reload on back-navigation — see the pageshow
+// listener below) rendered the exact same "no courses" empty state as
+// a student who genuinely has none. That's what made courses look like
+// they "disappeared" on back — it wasn't that the data was gone, the
+// fetch had just failed silently and gotten treated as "empty".
+// Now: a failed fetch is retried ONCE automatically after a short
+// pause (covers a one-off slow moment), and only shown to the student
+// as a real, distinct "couldn't load — tap to retry" message if the
+// retry also fails — never as the same message as "you have no
+// courses".
 async function loadMyCourses() {
   const grid = document.getElementById('my-courses');
   const empty = document.getElementById('courses-empty');
   if (!grid) return;
+  let data;
   try {
-    const data = await api('/students/my-courses');
+    data = await fetchMyCoursesOnce_();
+  } catch (e1) {
+    await new Promise((r) => setTimeout(r, 700));
+    try {
+      data = await fetchMyCoursesOnce_();
+    } catch (e2) {
+      console.error('loadMyCourses failed twice:', e2);
+      grid.innerHTML = '';
+      if (empty) {
+        empty.style.display = 'block';
+        empty.innerHTML = `
+          <p style="margin-bottom:10px;">⚠️ تعذر تحميل الكورسات (مش لأنك مالكش كورسات — فيه مشكلة اتصال مؤقتة)</p>
+          <button class="btn btn-primary" onclick="withPageLoader(loadMyCourses)">🔄 حاول تاني</button>
+        `;
+      }
+      return;
+    }
+  }
+  try {
     grid.innerHTML = '';
     if (!data.courses || !data.courses.length) {
-      if (empty) empty.style.display = 'block';
+      if (empty) { empty.style.display = 'block'; empty.innerHTML = '<p>مفيش كورسات مسجل فيها لسه</p>'; }
       return;
     }
     if (empty) empty.style.display = 'none';
