@@ -1,3 +1,4 @@
+// ===== MFX Student App =====
 const API = 'https://web-production-dcdc4.up.railway.app/api';
 
 function toast(msg) {
@@ -1491,9 +1492,25 @@ function setupPresentationDeterrents() {
   viewer.addEventListener('dragstart', (e) => e.preventDefault());
   viewer.style.userSelect = 'none';
 
+  const cover = document.getElementById('presentation-blur-cover');
+  const blurNow = () => { if (cover) cover.style.display = 'flex'; };
+  const unblurNow = () => { if (cover) cover.style.display = 'none'; };
+
+  // Hide the content the moment the tab loses focus or is backgrounded —
+  // makes casual screen-recording apps (which usually need the tab
+  // visible/focused) capture a blurred cover instead of the real slides.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) blurNow(); else unblurNow();
+  });
+  window.addEventListener('blur', blurNow);
+  window.addEventListener('focus', unblurNow);
+
+  // Block the most common keyboard shortcuts someone would reach for
+  // first (Print, Save, DevTools). Anyone who actually knows what
+  // they're doing can still get around this — it just raises the floor
+  // above "accidentally easy".
   document.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();
-    ...
     const blocked =
       key === 'printscreen' ||
       (e.ctrlKey && (key === 'p' || key === 's' || key === 'u')) ||
