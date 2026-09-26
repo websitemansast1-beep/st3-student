@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>تنويه مهم | إعلان رسمي</title>
+<title>صيانة</title>
 <style>
   /* ========== RESET & GLOBAL ========== */
   * {
@@ -29,6 +29,9 @@
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
     padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   /* ========== ANIMATIONS (subtle & elegant) ========== */
@@ -77,10 +80,13 @@
   /* ========== HERO SECTION ========== */
   .hero {
     position: relative;
-    padding: 100px 24px 72px;
+    padding: 80px 24px 80px;
     text-align: center;
     overflow: hidden;
     animation: fadeIn 1s ease both;
+    width: 100%;
+    max-width: 900px;
+    margin: 0 auto;
   }
 
   /* Subtle gold arc behind hero */
@@ -107,15 +113,15 @@
 
   /* Official icon — navy circle with gold ring */
   .hero-icon {
-    width: 84px;
-    height: 84px;
-    margin: 0 auto 30px;
+    width: 96px;
+    height: 96px;
+    margin: 0 auto 34px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     background: #0F172A;
-    font-size: 36px;
+    font-size: 42px;
     color: #C9A227;
     border: 2px solid #C9A227;
     box-shadow:
@@ -124,29 +130,13 @@
     animation: softFloat 5s ease-in-out infinite;
   }
 
-  /* Small label above headline */
-  .hero-label {
-    display: inline-block;
-    font-size: 12.5px;
-    font-weight: 700;
-    letter-spacing: 2.5px;
-    color: #334E68;
-    background: transparent;
-    border: 1px solid #C9A227;
-    padding: 7px 24px;
-    border-radius: 2px;
-    margin-bottom: 28px;
-    text-transform: uppercase;
-    animation: slideDown 0.8s 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-
   /* Main headline */
   .hero h1 {
-    font-size: clamp(28px, 5vw, 48px);
-    font-weight: 800;
-    line-height: 1.4;
-    margin-bottom: 24px;
-    letter-spacing: -0.4px;
+    font-size: clamp(48px, 10vw, 110px);
+    font-weight: 900;
+    line-height: 1.2;
+    margin-bottom: 0;
+    letter-spacing: -2px;
     color: #0F172A;
     animation: slideDown 0.9s 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
@@ -155,178 +145,20 @@
   .hero h1::after {
     content: "";
     display: block;
-    width: 70px;
-    height: 3px;
-    margin: 22px auto 0;
+    width: 90px;
+    height: 4px;
+    margin: 28px auto 0;
     background: #C9A227;
     border-radius: 0;
     animation: lineGrow 1s 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
     transform-origin: center;
   }
 
-  /* Visual subtitle */
-  .hero-subtitle {
-    font-size: clamp(15px, 2vw, 18px);
-    color: #64748B;
-    font-weight: 400;
-    max-width: 620px;
-    margin: 0 auto;
-    line-height: 1.9;
-    animation: fadeUp 0.9s 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-
-  /* ========== ANNOUNCEMENT MAIN CARD ========== */
-  .announcement-wrapper {
-    max-width: 860px;
-    margin: 0 auto 80px;
-    padding: 0 24px;
-    position: relative;
-    z-index: 1;
-  }
-
-  .announcement-card {
-    position: relative;
-    background: #FFFFFF;
-    border-radius: 4px;
-    padding: 60px 56px 52px;
-    border: 1px solid #E7E5E0;
-    border-top: 4px solid #0F172A;
-    box-shadow:
-      0 1px 2px rgba(15, 23, 42, 0.04),
-      0 12px 40px -18px rgba(15, 23, 42, 0.10);
-    animation: fadeUp 1s 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
-    transition: box-shadow 0.4s ease;
-  }
-
-  .announcement-card:hover {
-    box-shadow:
-      0 1px 2px rgba(15, 23, 42, 0.04),
-      0 18px 50px -18px rgba(15, 23, 42, 0.14);
-  }
-
-  /* Thin gold line under the navy top border */
-  .announcement-card::before {
-    content: "";
-    position: absolute;
-    top: 4px;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: #C9A227;
-    opacity: 0.5;
-  }
-
-  /* ========== ANNOUNCEMENT TEXT ========== */
-  .announcement-text p {
-    font-size: 18.5px;
-    line-height: 2.15;
-    color: #1E293B;
-    margin-bottom: 28px;
-    text-align: justify;
-    word-spacing: 0.3px;
-    animation: fadeUp 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-
-  .announcement-text p:nth-child(1) { animation-delay: 1.05s; }
-  .announcement-text p:nth-child(2) { animation-delay: 1.20s; }
-  .announcement-text p:nth-child(4) { animation-delay: 1.50s; }
-
-  .announcement-text p:last-of-type {
-    margin-bottom: 0;
-  }
-
-  /* Highlighted strong text — gold accent */
-  .announcement-text strong {
-    color: #0F172A;
-    font-weight: 800;
-    background: rgba(201, 162, 39, 0.10);
-    padding: 2px 8px;
-    border-radius: 2px;
-    box-decoration-break: clone;
-    -webkit-box-decoration-break: clone;
-    border-bottom: 2px solid #C9A227;
-  }
-
-  /* ========== HIGHLIGHT BOX (key sentence) ========== */
-  .highlight-box {
-    position: relative;
-    background: #FAFAF7;
-    border: 1px solid #E7E5E0;
-    border-right: 4px solid #C9A227;
-    border-radius: 3px;
-    padding: 30px 34px 30px 28px;
-    margin: 34px 0;
-    animation: fadeUp 0.9s 1.35s cubic-bezier(0.22, 1, 0.36, 1) both;
-    transition: background 0.3s ease;
-  }
-
-  .highlight-box:hover {
-    background: #F8F7F4;
-  }
-
-  .highlight-box p {
-    font-size: 18.5px;
-    line-height: 2.15;
-    color: #1E293B;
-    text-align: justify;
-    margin: 0;
-  }
-
-  .highlight-box strong {
-    color: #0F172A;
-    font-weight: 800;
-    background: rgba(201, 162, 39, 0.14);
-    padding: 2px 8px;
-    border-radius: 2px;
-    box-decoration-break: clone;
-    -webkit-box-decoration-break: clone;
-    border-bottom: 2px solid #C9A227;
-  }
-
-  /* Small gold corner accent */
-  .highlight-box::after {
-    content: "!";
-    position: absolute;
-    top: -14px;
-    right: 28px;
-    width: 28px;
-    height: 28px;
-    background: #C9A227;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-    font-weight: 800;
-    color: #FFFFFF;
-    box-shadow: 0 2px 8px rgba(201, 162, 39, 0.35);
-  }
-
-  /* ========== CLOSING MESSAGE ========== */
-  .closing-message {
-    margin-top: 40px;
-    padding-top: 32px;
-    border-top: 1px solid #E7E5E0;
-    text-align: center;
-    font-size: 18px;
-    font-weight: 600;
-    color: #334E68;
-    line-height: 1.9;
-    animation: fadeUp 0.9s 1.65s cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-
-  .closing-message .heart {
-    color: #C9A227;
-    display: inline-block;
-    animation: softFloat 2.4s ease-in-out infinite;
-    font-size: 18px;
-  }
-
   /* ========== BOTTOM DECORATIVE ELEMENT ========== */
   .bottom-accent {
     text-align: center;
-    padding-bottom: 60px;
-    animation: fadeIn 1.2s 1.9s ease both;
+    padding-top: 50px;
+    animation: fadeIn 1.2s 1.2s ease both;
   }
 
   .bottom-accent .dot {
@@ -353,98 +185,38 @@
   /* ========== RESPONSIVE ========== */
   @media (max-width: 768px) {
     .hero {
-      padding: 76px 20px 56px;
+      padding: 60px 20px 60px;
     }
 
     .hero-icon {
-      width: 70px;
-      height: 70px;
-      font-size: 30px;
-      margin-bottom: 24px;
+      width: 78px;
+      height: 78px;
+      font-size: 34px;
+      margin-bottom: 28px;
     }
 
-    .announcement-card {
-      padding: 44px 34px 40px;
-    }
-
-    .announcement-text p,
-    .highlight-box p {
-      font-size: 16.5px;
-      line-height: 2.05;
-    }
-
-    .highlight-box {
-      padding: 24px 26px 24px 22px;
-    }
-
-    .closing-message {
-      font-size: 16.5px;
+    .hero h1 {
+      letter-spacing: -1.5px;
     }
   }
 
   @media (max-width: 520px) {
     .hero {
-      padding: 60px 16px 46px;
+      padding: 50px 16px 50px;
     }
 
     .hero-icon {
-      width: 62px;
-      height: 62px;
-      font-size: 26px;
-      margin-bottom: 22px;
+      width: 68px;
+      height: 68px;
+      font-size: 28px;
+      margin-bottom: 24px;
       border-width: 1.5px;
     }
 
-    .hero-label {
-      font-size: 11px;
-      padding: 6px 18px;
-      letter-spacing: 1.5px;
-    }
-
-    .announcement-wrapper {
-      padding: 0 14px;
-      margin-bottom: 56px;
-    }
-
-    .announcement-card {
-      padding: 32px 22px 30px;
-      border-top-width: 3px;
-    }
-
-    .announcement-text p,
-    .highlight-box p {
-      font-size: 15px;
-      line-height: 2;
-      text-align: right;
-    }
-
-    .announcement-text strong,
-    .highlight-box strong {
-      padding: 1px 5px;
-    }
-
-    .highlight-box {
-      padding: 20px 18px 20px 16px;
-      margin: 26px 0;
-      border-right-width: 3px;
-    }
-
-    .highlight-box::after {
-      width: 24px;
-      height: 24px;
-      font-size: 13px;
-      top: -12px;
-      right: 20px;
-    }
-
-    .closing-message {
-      font-size: 15px;
-      margin-top: 30px;
-      padding-top: 26px;
-    }
-
-    .closing-message .heart {
-      font-size: 16px;
+    .hero h1::after {
+      width: 70px;
+      height: 3px;
+      margin-top: 22px;
     }
   }
 
@@ -453,10 +225,6 @@
     body {
       background: #fff;
       color: #000;
-    }
-    .announcement-card {
-      box-shadow: none;
-      border: 1px solid #ccc;
     }
     .hero-icon {
       box-shadow: none;
@@ -469,87 +237,15 @@
   <!-- ===== HERO SECTION ===== -->
   <header class="hero">
     <div class="hero-content">
-      <div class="hero-icon">📢</div>
-      <div class="hero-label">إعلان رسمي</div>
-      <h1>تنويه مهم لأولياء الأمور والطلاب</h1>
-      <p class="hero-subtitle">
-        نرجو من حضراتكم قراءة هذا الإعلان بعناية، فهو يوضح بشكل دقيق وموضوعي الموقف الكامل بشأن استكمال العمل على المنصة.
-      </p>
+      <div class="hero-icon">🛠️</div>
+      <h1>صيانة</h1>
+      <div class="bottom-accent">
+        <span class="dot"></span>
+        <span class="dot"></span>
+        <span class="dot"></span>
+      </div>
     </div>
   </header>
-
-  <!-- ===== MAIN ANNOUNCEMENT ===== -->
-  <main class="announcement-wrapper">
-    <div class="announcement-card">
-
-      <div class="announcement-text">
-
-        <!-- Paragraph 1 — EXACT -->
-        <p>
-          نعتذر لحضراتكم عن عدم استكمال العمل على المنصة، ونود توضيح أن المنصة تعمل بشكل جيد وتم تطويرها وتجهيزها لتقديم تجربة تعليمية متكاملة.
-        </p>
-
-        <!-- Paragraph 2 — EXACT -->
-        <p>
-          ولكن مدرسكم هو من اختار عدم الاستمرار على المنصة، كما أن تأخر رفع الفيديوهات والشرح كان من جانب المدرس نفسه، وليس بسبب أي مشكلة في المنصة أو الشركة المبرمجة.
-        </p>
-
-        <!-- Paragraph 3 (key sentence) — EXACT, inside highlight box -->
-        <div class="highlight-box">
-          <p>
-            ونود التأكيد أيضًا أن <strong>رفع الفيديوهات والشرح والمحتوى التعليمي ليس من مسؤولية الشركة المبرمجة</strong>، وإنما هو من مسؤولية المدرس، ودور الشركة هو تطوير المنصة وتشغيلها وتجهيز الأدوات اللازمة لاستخدامها.
-          </p>
-        </div>
-
-        <!-- Paragraph 4 — EXACT -->
-        <p>
-          لذلك نوضح لحضراتكم أن الشركة قامت بدورها بالكامل، ولم يكن هناك تقصير من جانبنا أدى إلى توقف استخدام المنصة.
-        </p>
-
-      </div>
-
-      <!-- Closing message — EXACT -->
-      <div class="closing-message">
-        ونعتذر لحضراتكم عن أي إزعاج حدث، ونشكركم على تفهمكم. <span class="heart">❤</span>
-      </div>
-
-    </div>
-  </main>
-
-  <!-- ===== BOTTOM DECORATIVE ACCENT ===== -->
-  <div class="bottom-accent">
-    <span class="dot"></span>
-    <span class="dot"></span>
-    <span class="dot"></span>
-  </div>
-
-  <!-- ===== JAVASCRIPT (lightweight smooth reveal) ===== -->
-  <script>
-    (function() {
-      // Smooth reveal on scroll for elements below the fold
-      const observerOptions = {
-        threshold: 0.08,
-        rootMargin: '0px 0px -30px 0px'
-      };
-
-      const observer = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-          if (entry.isIntersecting) {
-            entry.target.style.opacity = '1';
-            observer.unobserve(entry.target);
-          }
-        });
-      }, observerOptions);
-
-      const revealElements = document.querySelectorAll('.announcement-card, .closing-message, .bottom-accent');
-      revealElements.forEach(el => {
-        observer.observe(el);
-      });
-
-      // Ensure body is visible
-      document.body.style.opacity = '1';
-    })();
-  </script>
 
 </body>
 </html>
